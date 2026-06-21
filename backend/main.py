@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -74,9 +74,9 @@ def analyze_video(
     filename: str = Form(...),
     api_base: str = Form(""),
     camera_id: str = Form("Camera 15"),
-    zone_id: str = Form("sidewalk_scaffold_red_zone"),
-    zone_name: str = Form("비계 하부 RED ZONE"),
-    scene_context: str = Form("이동식 비계 작업 중이며, 현재 고정 작업 중입니다. 비계 임의 이동은 금지된 상태입니다."),
+    zone_id: str = Form("construction_site"),
+    zone_name: str = Form("건설현장 사고 구역"),
+    scene_context: str = Form("건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 원인을 판단합니다."),
 ) -> dict[str, Any]:
     video_path = (VIDEO_DIR / filename).resolve()
     if not _is_inside(video_path, VIDEO_DIR) or not video_path.exists():

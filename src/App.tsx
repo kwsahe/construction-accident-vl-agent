@@ -1,4 +1,4 @@
-﻿import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 
 type AnalyzeState = 'idle' | 'uploading' | 'ready' | 'running' | 'done' | 'error';
 
@@ -51,8 +51,7 @@ function App() {
   const [error, setError] = useState('');
   const [apiBase, setApiBase] = useState('');
   const [cameraId, setCameraId] = useState('Camera 15');
-  const [zoneName, setZoneName] = useState('비계 하부 RED ZONE');
-  const [sceneContext, setSceneContext] = useState('이동식 비계 작업 중이며, 현재 고정 작업 중입니다. 비계 임의 이동은 금지된 상태입니다.');
+  const [sceneContext, setSceneContext] = useState('건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 원인을 판단합니다.');
 
   useEffect(() => {
     refreshVideos().catch(() => undefined);
@@ -139,7 +138,6 @@ function App() {
       formData.append('filename', video.filename);
       formData.append('api_base', apiBase);
       formData.append('camera_id', cameraId);
-      formData.append('zone_name', zoneName);
       formData.append('scene_context', sceneContext);
 
       const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: formData });
@@ -174,7 +172,6 @@ function App() {
             <a href="#pipeline">Pipeline</a>
             <a href="#prompt">Prompt</a>
             <a href="#schema">Schema</a>
-            <a href="#portfolio">Portfolio</a>
           </div>
         </nav>
       </header>
@@ -194,20 +191,17 @@ function App() {
           onRunAnalysis={runAnalysis}
           onSceneContextChange={setSceneContext}
           onSelectVideo={selectExistingVideo}
-          onZoneNameChange={setZoneName}
           previewUrl={previewUrl}
           result={result}
           sceneContext={sceneContext}
           status={status}
           uploadedVideo={uploadedVideo}
           videos={videos}
-          zoneName={zoneName}
         />
         <Pipeline />
         <Features />
         <PromptSection />
         <SchemaSection />
-        <PortfolioSection />
       </main>
 
       <footer className="footer">
@@ -263,7 +257,6 @@ function ContactSheetPreview() {
       <div className="sheet">
         {['4s', '8s', '14s', '16s', '17s', '18s'].map((time, index) => (
           <div key={time} className={`frame ${index >= 2 && index < 4 ? 'tilt' : ''} ${index >= 4 ? 'fall' : ''}`} data-time={time}>
-            <span className="red-zone" />
             <span className="scaffold" />
             <span className="person" />
           </div>
@@ -273,7 +266,7 @@ function ContactSheetPreview() {
         <div className="verdict">
           <div>
             <strong>판단: 추락 / 전도</strong>
-            <span className="muted">Red Zone 진입은 사고 원인이 아니라 판단 근거 로그로 분리</span>
+            <span className="muted">사고 전후 장면 변화로 사고 원인 흐름을 추론</span>
           </div>
           <span className="badge">confidence 0.85</span>
         </div>
@@ -295,21 +288,19 @@ type WorkspaceProps = {
   onRunAnalysis: (event?: FormEvent) => void;
   onSceneContextChange: (value: string) => void;
   onSelectVideo: (video: VideoMeta) => void;
-  onZoneNameChange: (value: string) => void;
   previewUrl: string;
   result: AnalysisResponse | null;
   sceneContext: string;
   status: AnalyzeState;
   uploadedVideo: VideoMeta | null;
   videos: VideoMeta[];
-  zoneName: string;
 };
 
 function AnalyzeWorkspace(props: WorkspaceProps) {
   const {
     activeStage, apiBase, cameraId, error, file, jsonPreview, onApiBaseChange, onCameraIdChange,
-    onFileChange, onRunAnalysis, onSceneContextChange, onSelectVideo, onZoneNameChange, previewUrl,
-    result, sceneContext, status, uploadedVideo, videos, zoneName,
+    onFileChange, onRunAnalysis, onSceneContextChange, onSelectVideo, previewUrl,
+    result, sceneContext, status, uploadedVideo, videos,
   } = props;
 
   const statusLabel = {
@@ -327,7 +318,7 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
         <div className="section-title">
           <div>
             <h2>영상 입력에서 사고 분석까지 이어지는 화면 구조</h2>
-            <p>사용자가 mp4를 넣으면 백엔드가 루트 <code>video/</code> 폴더에 저장하고, 저장된 영상을 기준으로 VL 사고 분석을 실행합니다.</p>
+            <p>사용자가 mp4를 넣으면 백엔드가 루트 <code>video/</code> 폴더에 저장하고, 저장된 영상을 기준으로 사고 유형과 원인 흐름을 분석합니다.</p>
           </div>
           <p className="muted">Colab 서버의 <code>LLM_API_BASE</code>를 넣으면 Qwen VL 서버로 분석 요청이 전달됩니다. 비워두면 백엔드의 <code>agent/.env</code> 값을 사용합니다.</p>
         </div>
@@ -350,7 +341,6 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
             {previewUrl && <video className="video-preview" src={previewUrl} controls />}
             <div className="control-grid">
               <label><span>카메라</span><input value={cameraId} onChange={(event) => onCameraIdChange(event.target.value)} aria-label="카메라 ID" /></label>
-              <label><span>구역</span><input value={zoneName} onChange={(event) => onZoneNameChange(event.target.value)} aria-label="구역 이름" /></label>
               <label><span>Colab API Base</span><input value={apiBase} onChange={(event) => onApiBaseChange(event.target.value)} placeholder="https://xxxxx.ngrok-free.app/v1" aria-label="Colab API Base" /></label>
               <label><span>분석 질문</span><select aria-label="분석 질문"><option>사고 유형 + 부상자 수 + 원인</option><option>사고 유형 + 원인만</option></select></label>
             </div>
@@ -434,7 +424,7 @@ function Features() {
   const features = [
     ['Video Upload', 'video 폴더 저장', '프론트엔드에서 업로드한 mp4를 백엔드가 루트 video 폴더에 저장하고 목록으로 관리합니다.'],
     ['Accident Analysis', '사고 유형·부상자·원인 판단', 'VL 모델이 추락, 낙상, 화재, 기타 사고 유형과 부상자 수, 원인 흐름을 JSON으로 생성합니다.'],
-    ['Red Zone', '위험구역과 사고 판단 분리', 'Red Zone 진입은 사고 자체가 아니라 사고 경위의 증거 로그 또는 경고 이벤트로 사용합니다.'],
+    ['Cause Analysis', '사고 원인 판단 강화', '사고 전 행동, 구조물 변화, 사람의 위치 변화를 시간순으로 비교해 가장 그럴듯한 원인 흐름을 생성합니다.'],
     ['Colab Server', 'Qwen2.5-VL 32B 추천', 'Colab Pro에서는 Qwen2.5-VL-32B-Instruct를 1순위로 쓰고, VRAM 부족 시 7B로 fallback합니다.'],
     ['Fallback', 'VL 응답 안정화', '응답이 JSON이 아니거나 반복 토큰으로 깨지는 경우를 감지해 재시도 또는 fallback 판단을 적용합니다.'],
     ['React + FastAPI', '프론트/백엔드 분리', '업로드 상태, 분석 상태, 결과 payload를 React와 FastAPI API로 연결했습니다.'],
@@ -483,8 +473,8 @@ function PromptSection() {
 }`}</code></pre>
         </div>
         <div>
-          <div className="quote">단순 RED ZONE 진입만으로 사고라고 쓰지 말고, 실제 전도/추락이 보일 때만 사고 발생으로 쓰세요.</div>
-          <p className="muted spacious">이 제한 덕분에 위험구역 진입 경고와 실제 사고 판단이 분리됩니다.</p>
+          <div className="quote">마지막 장면만 보고 결론 내리지 말고, 사고 전 행동과 사고 순간 변화를 연결해 원인을 판단하세요.</div>
+          <p className="muted spacious">핵심은 사고 유형 분류보다 왜 사고가 발생했는지 설명 가능한 원인 흐름을 만드는 것입니다.</p>
         </div>
       </div>
     </section>
@@ -497,7 +487,6 @@ function SchemaSection() {
     ['injured_count', 'raw_judgment와 workers 정보를 기준으로 부상자 수 요약'],
     ['cause', '사고 원인 흐름을 분석 요약 및 agent_summary에 반영'],
     ['contact sheet', 'snapshot_path, evidence_photos.photo_url에 증거 이미지로 연결'],
-    ['red_zone_analysis', 'tts_alert_logs 메시지와 사고 경위 근거로 사용'],
   ];
 
   return (
@@ -517,24 +506,6 @@ function SchemaSection() {
           <pre><code>{`uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 npm run dev`}</code></pre>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function PortfolioSection() {
-  return (
-    <section id="portfolio" className="shell">
-      <div className="section-title">
-        <div>
-          <h2>포트폴리오에서 강조할 점</h2>
-          <p>단순 모델 호출보다 현장 영상 업로드부터 사고 분석, 서비스 DB payload까지 연결하는 파이프라인을 설계했다는 점이 핵심입니다.</p>
-        </div>
-      </div>
-      <div className="grid-3">
-        <article className="artifact"><h3>문제 정의</h3><p className="muted">건설현장 사고 영상을 사람이 매번 확인하지 않아도, 사고 발생 구간과 경위를 구조화합니다.</p></article>
-        <article className="artifact"><h3>내 역할</h3><p className="muted">업로드 API, VL 프롬프트 설계, contact sheet 생성 흐름, Qwen 서버 연동, JSON 검증, ERD payload 변환 구현.</p></article>
-        <article className="artifact"><h3>확장 방향</h3><p className="muted">YOLO/PT 모델과 tracking을 결합해 작업자 식별과 시간 안정성을 높이고, 이후 RAG 법령 Agent와 연결합니다.</p></article>
       </div>
     </section>
   );

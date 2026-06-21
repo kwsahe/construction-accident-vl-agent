@@ -44,9 +44,9 @@ except ImportError:  # direct script execution
 
 AGENT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = AGENT_DIR / "output"
-DEFAULT_SCENE_CONTEXT = "이동식 비계 작업 중이며, 현재 고정 작업 중입니다. 비계 임의 이동은 금지된 상태입니다."
+DEFAULT_SCENE_CONTEXT = "건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 원인을 판단합니다."
 SCENE_CONTEXT_FILE = DEFAULT_OUTPUT_DIR / "scene_context.txt"
-DEFAULT_RED_ZONE_POINTS = "0.13,0.70;0.43,0.70;0.43,0.99;0.13,0.99"
+DEFAULT_RISK_OVERLAY_POINTS = ""
 
 
 MOMENT_PROMPT = """
@@ -125,27 +125,27 @@ JSON 스키마:
 """.strip()
 
 
-RED_ZONE_PROMPT = """
-[RED ZONE 집중 확인]
+EXTRA_CAUSE_PROMPT = """
+[사고 원인 집중 확인]
 - 사고 유형은 구분해서 판단하세요. 비계/작업발판/사다리/높은 위치에서 아래로 떨어지면 "추락"입니다. 같은 바닥면에서 미끄러지거나 넘어지면 "낙상"입니다.
-- 프레임 안의 붉은 반투명 사각형/다각형, 점선 박스, "Red Zone", "RED ZONE", "Red Zone 2" 같은 텍스트 표식을 반드시 찾으세요.
-- RED ZONE이 보이면, 사람이 그 영역 안으로 들어갔는지/경계에 걸쳤는지/영역 밖인지 시간순으로 판단하세요.
-- 이동식 비계, 하부 작업자, 상부 작업자, 보도 위 위험구역 표시가 함께 보이면 구조물 전도/추락과 RED ZONE 진입의 관련성을 별도 근거로 정리하세요.
+- 프레임 사이에서 사람의 위치 변화, 구조물 기울어짐, 전도, 충돌, 넘어짐 같은 사고 단서를 반드시 찾으세요.
+- 사고 전 행동과 구조물 변화를 시간순으로 판단하세요.
+- 이동식 비계, 하부 작업자, 상부 작업자, 보도 위 사고 위험 요인 표시가 함께 보이면 구조물 전도/추락과 사고 전 위험 행동 진입의 관련성을 별도 근거로 정리하세요.
 - 사고 전 프레임에서 하부 작업자가 비계 하부 프레임/바퀴/기둥을 잡거나 밀고 있는지, 그 후 비계 위치가 이동하거나 회전/전도되는지 반드시 비교하세요.
 - 하부 작업자의 조작 뒤 비계가 움직이고 상부 작업자가 떨어지면 details에 "하부 작업자의 비계 임의 이동/조작 → 비계 이동 또는 전도 → 상부 작업자 추락"의 원인-결과 흐름을 쓰세요.
-- RED ZONE 표시가 흐리거나 일부만 보이면 "불확실"로 쓰되, 아예 누락하지 마세요.
-- details에는 관찰 가능한 경우 "RED ZONE 진입/접근 -> 구조물 이동 또는 흔들림 -> 추락/낙상"의 시간 관계를 포함하세요.
+- 원인 단서가 흐리거나 일부만 보이면 "불확실"로 쓰되, 가능한 후보를 근거와 함께 적으세요.
+- details에는 관찰 가능한 경우 "사고 전 접근 또는 조작 -> 구조물 이동 또는 흔들림 -> 추락/낙상"의 시간 관계를 포함하세요.
 - 사고가 발생했다고 판단되면 details 첫 문단에 "사고 발생"과 사고 발생 시점/구간을 명확히 쓰세요.
 
-추가로 JSON 최상위에 아래 필드를 반드시 포함하세요.
-"red_zone_analysis": {
-  "red_zone_visible": true,
-  "red_zone_label_visible": true,
-  "entry_detected": true,
-  "entry_time_sec": 0.0,
-  "worker_in_zone": "상부 작업자|하부 작업자|주변 보행자|불확실",
-  "zone_relation_to_accident": "직접 관련|간접 관련|관련 불확실|관련 없음",
-  "basis": "RED ZONE 표식과 작업자 위치 관계에 대한 시각 근거"
+추가로 JSON 최상위에 cause와 cause_confidence를 반드시 포함하세요.
+"risk_cause_analysis": {
+  "risk_cause_visible": true,
+  "risk_label_visible": true,
+  
+  
+  "main_actor": "피해자 후보|원인 관련자 후보|목격자 후보|불확실",
+  "relation_to_accident": "직접 관련|간접 관련|관련 불확실|관련 없음",
+  "basis": "사고 원인 판단에 사용한 시각 근거"
 }
 """.strip()
 
@@ -158,7 +158,7 @@ MOMENT_PROMPT = """
 
 규칙:
 - 보이는 변화만 근거로 판단하세요.
-- 단순 RED ZONE 진입은 사고가 아닙니다. 사람이 넘어지거나 비계가 전도되는 등 실제 사고 변화가 있을 때만 accident_detected=true입니다.
+- 단순 작업자 이동이나 정지 장면은 사고가 아닙니다. 사람이 넘어지거나 구조물이 전도되는 등 실제 사고 변화가 있을 때만 accident_detected=true입니다.
 - 이동식 비계가 이동/회전/전도되고 상부 작업자가 떨어지는 순간을 우선적으로 찾으세요.
 - JSON만 출력하세요.
 
@@ -189,8 +189,8 @@ PROMPT = """
 - 이후 비계 위치가 이동, 회전, 기울어짐, 전도되는지 비교하세요.
 - 하부 작업자의 조작 뒤 비계가 움직이고 상부 작업자가 떨어지면 details에
   "하부 작업자의 비계 임의 이동/조작 -> 비계 이동 또는 전도 -> 상부 작업자 추락" 흐름을 쓰세요.
-- RED ZONE 오버레이가 보이면 사람이 그 영역 안으로 들어갔는지, 경계에 걸쳤는지, 사고와 관련 있는지 판단하세요.
-- 단순 RED ZONE 진입만으로 사고라고 쓰지 말고, 실제 전도/추락이 보일 때만 사고 발생으로 쓰세요.
+- 사고 전 위험 행동 오버레이가 보이면 사람이 그 영역 안으로 들어갔는지, 경계에 걸쳤는지, 사고와 관련 있는지 판단하세요.
+- 단순 사고 전 위험 행동 진입만으로 사고라고 쓰지 말고, 실제 전도/추락이 보일 때만 사고 발생으로 쓰세요.
 - 교육 여부, 승인 여부, 사업주 책임 등 영상에서 직접 보이지 않는 내용은 단정하지 마세요.
 - 부상자 수는 영상에서 사고와 직접 관련된 피해자 후보만 세고, 불확실하면 0 또는 보수적인 최소 인원으로 답하세요.
 - cause에는 관찰 가능한 원인 흐름만 쓰고, 법적 책임이나 단정적 과실 판단은 쓰지 마세요.
@@ -200,7 +200,7 @@ PROMPT = """
 JSON 스키마:
 {
   "primary_type": "낙상|추락|화재|기타",
-  "secondary_type": "없음|전도|RED_ZONE_ENTRY|기타",
+  "secondary_type": "없음|전도|충돌|끼임|붕괴|기타",
   "confidence": 0.0,
   "injured_count": 0,
   "cause": "사고 원인 또는 원인 후보를 시간순으로 요약",
@@ -211,7 +211,7 @@ JSON 스키마:
       "visible_frames": ["4s"],
       "position_change": "시간대별 위치 변화",
       "action_change": "시간대별 행동 변화",
-      "risk_behavior": "RED ZONE 진입|비계 조작|위험행동 없음|불확실",
+      "risk_behavior": "사고 전 위험 행동 진입|비계 조작|위험행동 없음|불확실",
       "accident_relation": "피해자 후보|원인 관련자 후보|목격자 후보|불확실",
       "basis": "시각 근거",
       "confidence": 0.0
@@ -225,14 +225,14 @@ JSON 스키마:
       "structure_state": "정상|이동|기울어짐|전도|불확실"
     }
   ],
-  "red_zone_analysis": {
-    "red_zone_visible": true,
-    "red_zone_label_visible": true,
-    "entry_detected": true,
-    "entry_time_sec": 0.0,
-    "worker_in_zone": "상부 작업자|하부 작업자|주변 보행자|불확실",
-    "zone_relation_to_accident": "직접 관련|간접 관련|관련 불확실|관련 없음",
-    "basis": "RED ZONE 표식과 작업자 위치 관계에 대한 시각 근거"
+  "risk_cause_analysis": {
+    "risk_cause_visible": true,
+    "risk_label_visible": true,
+    
+    
+    "main_actor": "피해자 후보|원인 관련자 후보|목격자 후보|불확실",
+    "relation_to_accident": "직접 관련|간접 관련|관련 불확실|관련 없음",
+    "basis": "사고 원인 판단에 사용한 시각 근거"
   },
   "visible_clues": [],
   "evidence": [],
@@ -241,15 +241,66 @@ JSON 스키마:
 """.strip()
 
 
-RED_ZONE_PROMPT = """
+EXTRA_CAUSE_PROMPT = """
 [추가 집중 지시]
 - 4~14초 사고 전 프레임에서 하부 작업자가 비계 하부에 접근하거나 비계를 잡고 있는지 반드시 확인하세요.
 - 14~18초 사고 순간 프레임에서 비계가 이동/회전/전도되고 상부 작업자가 떨어지는지 반드시 확인하세요.
 - 마지막 프레임의 '사람이 바닥에 쓰러짐'만 쓰면 오답입니다.
 - details에는 가능한 경우 다음 문장을 포함하는 수준으로 구체적으로 쓰세요:
-  "하부 작업자가 RED ZONE 내부 또는 경계 부근에서 이동식 비계 하부를 잡고 임의로 이동/조작했고,
+  "하부 작업자가 이동식 비계 하부를 잡고 임의로 이동/조작했고,
    이후 비계가 이동 또는 전도되면서 상부 작업자가 추락한 것으로 판단됩니다."
 """.strip()
+PROMPT = """
+당신은 건설현장 CCTV 사고 원인 분석 AI입니다.
+
+이미지는 같은 CCTV 영상에서 시간순으로 추출한 contact sheet입니다.
+각 프레임의 시간 라벨을 순서대로 비교해 사고 발생 여부, 사고 유형, 부상자 수, 가장 그럴듯한 원인을 판단하세요.
+
+중요 판단 기준:
+- 마지막 장면만 보고 결론 내리지 말고, 사고 전 행동 -> 사고 순간 변화 -> 사고 후 결과를 연결하세요.
+- 비계/작업발판/사다리/높은 위치에서 아래로 떨어지면 primary_type은 "추락"입니다.
+- 같은 바닥면에서 미끄러지거나 넘어지는 경우만 "낙상"입니다.
+- 화염, 연기, 폭발 징후가 명확하면 "화재"입니다.
+- 원인은 영상에서 관찰 가능한 행동, 구조물 변화, 사람의 위치 변화만 근거로 쓰세요.
+- 승인 여부, 교육 여부, 사망 여부, 법적 책임은 단정하지 마세요.
+- 부상자 수는 사고와 직접 관련된 피해자 후보만 보수적으로 세세요.
+- 원인이 불확실하면 cause에 "원인 불확실"이라고 쓰고, 가능한 후보와 근거를 evidence에 분리하세요.
+
+반드시 JSON만 출력하세요.
+
+JSON 스키마:
+{
+  "primary_type": "낙상|추락|화재|기타",
+  "secondary_type": "없음|전도|충돌|끼임|붕괴|기타",
+  "confidence": 0.0,
+  "injured_count": 0,
+  "cause": "사고 원인 또는 원인 후보를 시간순으로 요약",
+  "cause_confidence": 0.0,
+  "timeline": [
+    {
+      "time": "4s",
+      "description": "핵심 장면",
+      "observed_change": "사고 전 행동/구조물 변화/사고 결과"
+    }
+  ],
+  "workers": [
+    {
+      "role_guess": "피해자 후보|원인 관련자 후보|목격자 후보|불확실",
+      "visible_frames": ["4s"],
+      "position_change": "시간대별 위치 변화",
+      "action_change": "시간대별 행동 변화",
+      "accident_relation": "피해자 후보|원인 관련자 후보|목격자 후보|불확실",
+      "basis": "시각 근거",
+      "confidence": 0.0
+    }
+  ],
+  "visible_clues": [],
+  "evidence": [],
+  "details": "[사고 경위]\n사고 발생 시점, 사고 유형, 부상자 수, 원인을 시간순으로 정리"
+}
+""".strip()
+
+EXTRA_CAUSE_PROMPT = ""
 
 
 def main() -> int:
@@ -273,12 +324,12 @@ def main() -> int:
     parser.add_argument("--api-base", default=os.environ.get("LLM_API_BASE", ""))
     parser.add_argument("--target-seconds", default="0,4,8,12,14,15,16,17,18")
     parser.add_argument("--crop", default="0.00,0.00,1.00,1.00", help="x1,y1,x2,y2 ratios")
-    parser.add_argument("--red-zone-points", default=os.environ.get("AGENT_RED_ZONE_POINTS", DEFAULT_RED_ZONE_POINTS), help="Normalized polygon points: x,y;x,y;...")
+    parser.add_argument("--risk-overlay-points", default=os.environ.get("AGENT_RISK_OVERLAY_POINTS", DEFAULT_RISK_OVERLAY_POINTS), help="Normalized polygon points: x,y;x,y;...")
     parser.add_argument("--max-long-side", type=int, default=640)
     parser.add_argument("--max-tokens", type=int, default=1000)
     parser.add_argument("--camera-id", default="Camera 15")
-    parser.add_argument("--zone-id", default="sidewalk_scaffold_red_zone")
-    parser.add_argument("--zone-name", default="비계 하부 RED ZONE")
+    parser.add_argument("--zone-id", default="construction_site")
+    parser.add_argument("--zone-name", default="건설현장 사고 구역")
     parser.add_argument("--detected-at", default="")
     parser.add_argument("--scene-context", default=os.environ.get("AGENT_SCENE_CONTEXT", _load_scene_context()))
     args = parser.parse_args()
@@ -312,14 +363,14 @@ def main() -> int:
     if len(crop) != 4:
         print("--crop must be four comma-separated numbers.")
         return 2
-    red_zone_points = _parse_points(args.red_zone_points)
+    risk_overlay_points = _parse_points(args.risk_overlay_points)
 
     duration_sec = get_video_duration(video_path)
     moment_detection: dict[str, Any] | None = None
     if args.auto_moment:
         overview_seconds = _overview_seconds(duration_sec, args.overview_interval)
         overview_path = Path(args.overview_output)
-        build_contact_sheet(video_path, overview_path, overview_seconds, crop, args.max_long_side, red_zone_points)
+        build_contact_sheet(video_path, overview_path, overview_seconds, crop, args.max_long_side, risk_overlay_points)
         print(f"overview sheet saved: {overview_path}")
 
         moment_detection = call_qwen_moment(api_base, overview_path, args.max_tokens, asdict(pt_result), args.scene_context)
@@ -343,16 +394,12 @@ def main() -> int:
 
     sheet_path = Path(args.sheet_output)
     sheet_path.parent.mkdir(parents=True, exist_ok=True)
-    build_contact_sheet(video_path, sheet_path, target_seconds, crop, args.max_long_side, red_zone_points)
+    build_contact_sheet(video_path, sheet_path, target_seconds, crop, args.max_long_side, risk_overlay_points)
     print(f"contact sheet saved: {sheet_path}")
 
-    if moment_detection and moment_detection.get("accident_detected"):
-        raw_judgment = _judgment_from_moment_detection(moment_detection, args.scene_context)
-    else:
-        # moment 탐지 실패(garbage/false) 시 contact sheet 전체를 VL로 재판단
-        print("[judgment] moment detection not confirmed, running full VL chat judgment...")
-        raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context)
-        raw_judgment = _stabilize_scaffold_judgment(raw_judgment, moment_detection, args.scene_context)
+    print("[judgment] running full VL chat judgment for accident type, injured count, and cause...")
+    raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context)
+    raw_judgment = _sanitize_accident_judgment(raw_judgment)
     if moment_detection:
         raw_judgment["moment_detection"] = moment_detection
     if args.scene_context:
@@ -486,7 +533,7 @@ def build_contact_sheet(
     target_seconds: list[float],
     crop: tuple[float, float, float, float],
     max_long_side: int,
-    red_zone_points: list[tuple[float, float]] | None = None,
+    risk_overlay_points: list[tuple[float, float]] | None = None,
 ) -> None:
     try:
         import cv2
@@ -522,8 +569,8 @@ def build_contact_sheet(
                 cropped = cv2.resize(cropped, (int(cw * scale), int(ch * scale)))
             rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
             image = Image.fromarray(rgb)
-            if red_zone_points and len(red_zone_points) >= 3:
-                _draw_red_zone_overlay(image, red_zone_points, (w, h), (x1, y1, x2, y2), scale)
+            if risk_overlay_points and len(risk_overlay_points) >= 3:
+                _draw_risk_overlay(image, risk_overlay_points, (w, h), (x1, y1, x2, y2), scale)
             items.append((sec, image))
     finally:
         cap.release()
@@ -549,7 +596,7 @@ def build_contact_sheet(
     sheet.save(output_path, quality=88)
 
 
-def _draw_red_zone_overlay(
+def _draw_risk_overlay(
     image: Any,
     points: list[tuple[float, float]],
     frame_size: tuple[int, int],
@@ -569,7 +616,7 @@ def _draw_red_zone_overlay(
     draw.line(pts + [pts[0]], fill=(248, 113, 113, 240), width=3)
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)
-    label = "RED ZONE"
+    label = "CAUSE"
     box_w, box_h = 96, 24
     draw.rectangle(
         [cx - box_w / 2, cy - box_h / 2, cx + box_w / 2, cy + box_h / 2],
@@ -604,7 +651,7 @@ def call_qwen_chat(
     scene_context: str = "",
 ) -> dict[str, Any]:
     encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    prompt = f"{PROMPT}\n\n{RED_ZONE_PROMPT}"
+    prompt = f"{PROMPT}\n\n{EXTRA_CAUSE_PROMPT}"
     if scene_context:
         prompt = (
             f"{prompt}\n\n[현장 상황 설명]\n{scene_context}\n"
@@ -663,7 +710,7 @@ def call_qwen_chat(
                 "confidence": 0.65,
                 "details": (
                     "[VL 분석 실패 — 비계 현장 기본값 적용]\n"
-                    "YOLO RED ZONE 진입이 감지된 이동식 비계 작업 현장에서 추락 사고 가능성이 있습니다. "
+                    "건설현장 영상에서 추락 사고 가능성이 있습니다. "
                     "영상 분석 모델이 응답하지 않아 현장 컨텍스트 기반으로 판정합니다."
                 ),
             }
@@ -802,7 +849,7 @@ def _stabilize_scaffold_judgment(
     shallow_details = (
         "작업자들이 바닥에 누워" in str(raw.get("details") or "")
         or "사람이 바닥" in str(raw.get("details") or "")
-        or not raw.get("red_zone_analysis")
+        or not raw.get("risk_cause_analysis")
     )
     if not (scaffold_context and fall_signal and shallow_details):
         return raw
@@ -813,12 +860,12 @@ def _stabilize_scaffold_judgment(
     details = (
         "[사고 경위]\n"
         f"사고 발생: 약 {accident_time:g}초 전후 이동식 비계 작업 중 실제 사고 변화가 감지되었습니다.\n"
-        f"{start:g}초 이전 사고 전 구간에서는 하부 작업자가 RED ZONE 내부 또는 경계 부근에서 "
+        f"{start:g}초 이전 사고 전 구간에서는 하부 작업자가 "
         "이동식 비계 하부 프레임에 접근해 비계를 잡거나 이동/조작하는 장면이 사고 원인 행동 후보로 관찰됩니다.\n"
         f"{start:g}초~{end:g}초 구간에서는 비계가 정상 상태에서 이동 또는 기울어지는 상태로 변하고, "
         "그 결과 비계 위 상부 작업자가 균형을 잃고 보도 방향으로 떨어지는 추락 사고로 판단됩니다.\n"
         "따라서 현재 관찰 가능한 원인-결과 흐름은 "
-        "하부 작업자의 RED ZONE 진입 및 비계 임의 이동/조작 -> 비계 이동 또는 전도 -> 상부 작업자 추락입니다.\n"
+        "하부 작업자의 비계 임의 이동/조작 -> 비계 이동 또는 전도 -> 상부 작업자 추락입니다.\n"
         "단, 교육 여부, 승인 여부, 사망 여부 등 영상만으로 직접 확인되지 않는 사항은 판단에 포함하지 않았습니다."
     )
 
@@ -826,7 +873,7 @@ def _stabilize_scaffold_judgment(
     stabilized["primary_type"] = "추락"
     stabilized["secondary_type"] = "전도"
     stabilized["injured_count"] = max(int(stabilized.get("injured_count") or 0), 1)
-    stabilized["cause"] = "하부 작업자의 RED ZONE 진입 및 비계 임의 이동/조작 -> 비계 이동 또는 전도 -> 상부 작업자 추락"
+    stabilized["cause"] = "하부 작업자의 비계 임의 이동/조작 -> 비계 이동 또는 전도 -> 상부 작업자 추락"
     stabilized["confidence"] = max(_safe_float(raw.get("confidence")) or 0.0, _safe_float(moment_detection.get("confidence")) or 0.0, 0.85)
     stabilized["structure_change"] = stabilized.get("structure_change") or {
         f"{start:g}s": "정상 또는 이동 전",
@@ -836,7 +883,7 @@ def _stabilize_scaffold_judgment(
     stabilized["timeline"] = [
         {
             "time": f"{start:g}s 이전",
-            "description": "하부 작업자가 RED ZONE 내부 또는 경계 부근에서 이동식 비계 하부에 접근합니다.",
+            "description": "하부 작업자가 이동식 비계 하부에 접근합니다.",
             "workers_involved": ["하부 작업자"],
             "structure_state": "정상 또는 이동 전",
         },
@@ -847,17 +894,17 @@ def _stabilize_scaffold_judgment(
             "structure_state": "이동 또는 전도 중",
         },
     ]
-    stabilized["red_zone_analysis"] = {
-        "red_zone_visible": True,
-        "red_zone_label_visible": True,
+    stabilized["risk_cause_analysis"] = {
+        "risk_cause_visible": True,
+        "risk_label_visible": True,
         "entry_detected": True,
         "entry_time_sec": None,
         "worker_in_zone": "하부 작업자",
         "zone_relation_to_accident": "직접 관련",
-        "basis": "RED ZONE 표시 영역과 비계 하부 작업자 위치, 이후 비계 이동/기울어짐 및 상부 작업자 추락 흐름을 시간순으로 연결해 판단했습니다.",
+        "basis": "비계 하부 작업자 위치, 이후 비계 이동/기울어짐 및 상부 작업자 추락 흐름을 시간순으로 연결해 판단했습니다.",
     }
     stabilized["visible_clues"] = [
-        "RED ZONE 표시 영역",
+        "사고 전 구조물 주변 움직임",
         "이동식 비계 하부에 접근한 하부 작업자",
         "비계 이동 또는 기울어짐",
         "상부 작업자의 추락 및 사고 후 바닥 위치 변화",
@@ -879,7 +926,7 @@ def _non_accident_judgment(raw: dict[str, Any], moment_detection: dict[str, Any]
     result["details"] = (
         "[판단 결과]\n"
         "사고 발생 순간 탐지 결과 실제 추락, 전도, 화재 등 사고 변화가 확인되지 않았습니다. "
-        "RED ZONE 진입은 위험 경고 로그로 기록하되, 사고 이벤트로 승격하지 않습니다."
+        "사고 전 위험 행동 진입은 위험 경고 로그로 기록하되, 사고 이벤트로 승격하지 않습니다."
     )
     result["evidence"] = moment_detection.get("evidence") or []
     result["visible_clues"] = result.get("visible_clues") or []
@@ -902,10 +949,10 @@ def _judgment_from_moment_detection(moment_detection: dict[str, Any], scene_cont
         f"Qwen2.5-VL 사고 순간 탐지 결과, {time_text} 전후 실제 사고 발생이 감지되었습니다. "
         f"탐지 구간은 {start_text}부터 {end_text}까지이며, 사고 순간 요약은 "
         f"'{moment_detection.get('event_summary') or '사고 순간 변화 감지'}'입니다.\n"
-        "현장 상황은 이동식 비계 작업 중이며 비계 임의 이동이 금지된 상태입니다. "
-        "RED ZONE 진입 경고 로그 이후 사고 순간 탐지에서 사람이 높은 작업 위치에서 바닥 방향으로 급격히 이동하는 장면이 확인되므로, "
+        "현장 상황은 건설현장 CCTV 사고 영상이며, 사고 전 행동과 구조물/사람 위치 변화를 중심으로 판단합니다. "
+        "사고 순간 탐지에서 사람이 높은 작업 위치에서 바닥 방향으로 급격히 이동하는 장면이 확인되므로, "
         "동일 평면 낙상이 아니라 이동식 비계 작업 중 상부 작업자의 추락 사고로 판단합니다.\n"
-        "관찰 가능한 원인-결과 흐름은 하부 작업자의 RED ZONE 진입/접근 및 비계 하부 조작 가능성 "
+        "관찰 가능한 원인-결과 흐름은 하부 작업자의 비계 하부 조작 가능성 "
         "-> 비계 이동 또는 기울어짐/전도 위험 상태 -> 상부 작업자 추락입니다. "
         "단, 승인 여부, 교육 여부, 사망 여부 등 영상과 입력 정보만으로 직접 확인되지 않는 사항은 단정하지 않습니다."
     )
@@ -913,7 +960,7 @@ def _judgment_from_moment_detection(moment_detection: dict[str, Any], scene_cont
         "primary_type": "추락",
         "secondary_type": "전도",
         "injured_count": 1,
-        "cause": "하부 작업자의 RED ZONE 진입/접근 및 비계 하부 조작 가능성 -> 비계 이동 또는 기울어짐/전도 위험 상태 -> 상부 작업자 추락",
+        "cause": "하부 작업자의 비계 하부 조작 가능성 -> 비계 이동 또는 기울어짐/전도 위험 상태 -> 상부 작업자 추락",
         "confidence": max(_safe_float(moment_detection.get("confidence")) or 0.0, 0.85),
         "structure_change": {
             start_text.replace("초", "s"): "정상 또는 이동 전",
@@ -934,18 +981,18 @@ def _judgment_from_moment_detection(moment_detection: dict[str, Any], scene_cont
             {
                 "role_guess": "하부 작업자",
                 "visible_frames": [start_text.replace("초", "s")],
-                "position_change": "RED ZONE 진입 로그와 사고 전 구간에서 비계 하부 접근 가능성이 있습니다.",
+                "position_change": "사고 전 구간에서 비계 하부 접근 가능성이 있습니다.",
                 "action_change": "비계 하부 조작 또는 이동 관련 원인 후보입니다.",
-                "risk_behavior": "RED ZONE 진입 및 비계 임의 이동/조작 가능성",
+                "risk_behavior": "비계 임의 이동/조작 가능성",
                 "accident_relation": "원인 관련자 후보",
-                "basis": "RED ZONE 진입 로그와 이동식 비계 작업 상황 설명을 함께 고려했습니다.",
+                "basis": "이동식 비계 작업 상황 설명을 함께 고려했습니다.",
                 "confidence": 0.75,
             },
         ],
         "timeline": [
             {
                 "time": start_text,
-                "description": "RED ZONE 진입 경고 로그 이후 비계 하부 접근/조작 가능성이 있는 사고 전 구간입니다.",
+                "description": "비계 하부 접근/조작 가능성이 있는 사고 전 구간입니다.",
                 "workers_involved": ["하부 작업자"],
                 "structure_state": "정상 또는 이동 전",
             },
@@ -956,17 +1003,17 @@ def _judgment_from_moment_detection(moment_detection: dict[str, Any], scene_cont
                 "structure_state": "이동/기울어짐 또는 추락 발생",
             },
         ],
-        "red_zone_analysis": {
-            "red_zone_visible": True,
-            "red_zone_label_visible": True,
+        "risk_cause_analysis": {
+            "risk_cause_visible": True,
+            "risk_label_visible": True,
             "entry_detected": True,
             "entry_time_sec": None,
             "worker_in_zone": "하부 작업자",
             "zone_relation_to_accident": "직접 관련",
-            "basis": "사고 전 RED ZONE 진입 로그가 생성되었고, 이후 Qwen 사고 순간 탐지에서 추락 사고가 확인되었습니다.",
+            "basis": "사고 전 사고 전 위험 행동 진입 로그가 생성되었고, 이후 Qwen 사고 순간 탐지에서 추락 사고가 확인되었습니다.",
         },
         "visible_clues": [
-            "RED ZONE 진입 경고 로그",
+            "사고 전 위험 행동 진입 경고 로그",
             "Qwen 사고 순간 탐지 true",
             str(moment_detection.get("event_summary") or "사고 순간 변화"),
         ],
@@ -1002,6 +1049,14 @@ def _pt_prompt_context(pt_status: dict[str, Any] | None) -> str:
     lines.append("위 정보는 보조 탐지 결과입니다. 최종 사고 경위는 contact sheet의 시각 변화와 함께 판단하세요.")
     return "\n".join(lines)
 
+
+
+def _sanitize_accident_judgment(raw: dict[str, Any]) -> dict[str, Any]:
+    """Remove legacy fields and keep the result focused on accident cause."""
+    cleaned = dict(raw)
+    for key in ("legacy_zone_analysis", "risk_cause_analysis"):
+        cleaned.pop(key, None)
+    return cleaned
 
 def _safe_float(value: Any) -> float | None:
     try:

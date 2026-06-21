@@ -42,8 +42,8 @@ def main() -> int:
     parser.add_argument("--insert-db", action="store_true", help="Insert video-part rows into Django DB (direct ORM)")
     parser.add_argument("--api-url", default="", help="Django API base URL (e.g. http://127.0.0.1:8000). POST /api/agent/ingest 로 전송합니다.")
     parser.add_argument("--camera-id", default="Camera 15")
-    parser.add_argument("--zone-id", default="sidewalk_scaffold_red_zone")
-    parser.add_argument("--zone-name", default="비계 하부 RED ZONE")
+    parser.add_argument("--zone-id", default="construction_site")
+    parser.add_argument("--zone-name", default="건설현장 사고 구역")
     parser.add_argument("--detected-at", default="")
     parser.add_argument("--clip-path", default="video/accident_video.mp4")
     parser.add_argument("--snapshot-path", default="output/evidence/judgement_snapshot.jpg")
@@ -374,66 +374,19 @@ def _event_logs_from_judgment(
     observation: VisualObservation,
     judgment: AccidentJudgment,
 ) -> list[EventLog]:
-    logs: list[EventLog] = []
-    text = json.dumps(raw, ensure_ascii=False)
-    if "안전모" in text or "no_helmet" in text:
-        logs.append(EventLog(
-            event_type="PPE_VIOLATION",
-            label="no_helmet",
-            message="안전모 미착용 의심 이벤트",
-            confidence=max(0.5, judgment.confidence - 0.1),
-            severity="medium",
-        ))
-    if "RED ZONE" in text or "Red Zone" in text or "위험구역" in text:
-        logs.append(EventLog(
-            event_type="RED_ZONE_ENTRY",
-            label="red_zone_entry",
-            message=f"{observation.zone_name} 진입 의심 이벤트",
-            confidence=judgment.confidence,
-            severity="high",
-        ))
-    return logs
+    """Create a generic accident alert; cause analysis is handled by the VL judgment."""
+    if judgment.agent_verdict != "accident":
+        return []
 
-
-def _event_logs_from_judgment(
-    raw: dict[str, Any],
-    observation: VisualObservation,
-    judgment: AccidentJudgment,
-) -> list[EventLog]:
-    logs: list[EventLog] = []
-    text = json.dumps(raw, ensure_ascii=False)
-
-    if "안전모" in text or "no_helmet" in text:
-        logs.append(EventLog(
-            event_type="PPE_VIOLATION",
-            label="no_helmet",
-            message="안전모 미착용 의심 이벤트",
-            confidence=max(0.5, judgment.confidence - 0.1),
-            severity="medium",
-        ))
-
-    red_zone = raw.get("red_zone_analysis")
-    red_zone_data = red_zone if isinstance(red_zone, dict) else {}
-    red_zone_seen = (
-        bool(red_zone_data.get("entry_detected"))
-        or bool(red_zone_data.get("red_zone_visible"))
-        or "RED ZONE" in text
-        or "Red Zone" in text
-        or "red_zone" in text
-        or "위험구역" in text
-    )
-    if red_zone_seen:
-        basis = str(red_zone_data.get("basis") or "").strip()
-        logs.append(EventLog(
-            event_type="RED_ZONE_ENTRY",
-            label="red_zone_entry",
-            message=basis or f"{observation.zone_name} 진입 의심 이벤트",
-            confidence=judgment.confidence,
-            severity="high",
-        ))
-
-    return logs
-
+    cause = str(raw.get("cause") or "").strip()
+    message = cause or judgment.summary or "사고 의심 상황이 감지되었습니다. 즉시 현장을 확인하십시오."
+    return [EventLog(
+        event_type="ACCIDENT_ALERT",
+        label="accident_detected",
+        message=message,
+        confidence=judgment.confidence,
+        severity="high",
+    )]
 
 def _video_part_tables(
     observation: VisualObservation,
@@ -500,8 +453,8 @@ def _tts_rows(
         if judgment.accident_type == "fire_explosion":
             message = "화재 위험이 감지되었습니다. 즉시 대피하고 초기 대응을 준비하십시오."
         event_logs = [EventLog(
-            event_type="RED_ZONE_ENTRY",
-            label="red_zone_entry",
+            event_type="ACCIDENT_ALERT",
+            label="accident_detected",
             message=message,
             confidence=judgment.confidence,
             severity="high",

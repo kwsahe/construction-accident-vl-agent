@@ -75,16 +75,16 @@ VL/agent/
 2. 프레임 추출
 3. 사고 후보 구간 contact sheet 생성
 4. Colab Qwen2.5-VL 서버 호출
-5. 사고 유형/details/red_zone_analysis JSON 생성
+5. 사고 유형/details/cause_analysis JSON 생성
 6. SPilot ERD payload 변환
 7. cctv_events/evidence_photos/incidents/reports 저장 흐름으로 전달
 ```
 
-## 포트폴리오에서 강조할 점
+## 구현에서 강조할 점
 
 - 영상 기반 사고 판단 Agent를 직접 설계하고 구현
 - 단순 이미지 분류가 아니라 시간 흐름 기반 프레임 비교 수행
-- Red Zone을 사고 트리거가 아닌 증거 데이터로 분리
+- 사고 유형 분류와 사고 원인 설명을 분리
 - Qwen2.5-VL과 로컬 Django/DB 구조를 연결
 - 사고 판단 결과를 ERD 기반 payload로 변환
 - 실행 산출물과 코드 자산을 분리해 협업 충돌을 줄임
