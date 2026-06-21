@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vscode/
+.env
+agent/.env
+agent/output/
+agent/video/
+agent/models/
+video/*
+!video/.gitkeep
+__pycache__/
+*.pyc

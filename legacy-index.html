@@ -1,0 +1,1191 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPilot VL Accident Judgment Agent</title>
+  <style>
+    :root {
+      --bg: #f6f4ee;
+      --paper: #fffdf8;
+      --ink: #181714;
+      --muted: #69645a;
+      --line: #ded8ca;
+      --safety: #f5c542;
+      --danger: #d3422f;
+      --ok: #1f8a70;
+      --soft: #ece5d7;
+      --code: #24221e;
+      --shadow: 0 18px 45px rgba(34, 31, 25, .12);
+      --blueprint: #2f5f73;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(245, 197, 66, .16), transparent 30%),
+        linear-gradient(315deg, rgba(211, 66, 47, .08), transparent 34%),
+        var(--bg);
+      font-family: Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 4px;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(24, 23, 20, .08);
+      background: rgba(246, 244, 238, .86);
+      backdrop-filter: blur(14px);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 62px;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 2px solid var(--ink);
+      background: var(--safety);
+      font-weight: 900;
+      transform: rotate(-2deg);
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 14px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(330px, .95fr);
+      gap: 42px;
+      align-items: center;
+      padding: 78px 0 54px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 18px;
+      color: #554e41;
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 34px;
+      height: 8px;
+      background: repeating-linear-gradient(135deg, var(--safety) 0 7px, var(--ink) 7px 14px);
+      border: 1px solid var(--ink);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 780px;
+      margin-bottom: 18px;
+      font-size: clamp(38px, 6vw, 76px);
+      line-height: .96;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 690px;
+      margin-bottom: 28px;
+      color: #3f3b34;
+      font-size: 19px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 26px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--ink);
+      color: var(--paper);
+      font-weight: 800;
+      text-decoration: none;
+      box-shadow: 4px 4px 0 var(--safety);
+    }
+
+    .button.secondary {
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: none;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      max-width: 690px;
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 248, .7);
+    }
+
+    .stat {
+      padding: 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .stat:last-child {
+      border-right: 0;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .monitor {
+      overflow: hidden;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .monitor-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 2px solid var(--ink);
+      background: #fff4c8;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .lights {
+      display: flex;
+      gap: 6px;
+    }
+
+    .lights span {
+      width: 10px;
+      height: 10px;
+      border: 1px solid var(--ink);
+      border-radius: 50%;
+      background: var(--danger);
+    }
+
+    .lights span:nth-child(2) {
+      background: var(--safety);
+    }
+
+    .lights span:nth-child(3) {
+      background: var(--ok);
+    }
+
+    .sheet {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 14px;
+      background: #211f1b;
+    }
+
+    .frame {
+      position: relative;
+      min-height: 98px;
+      border: 1px solid rgba(255, 255, 255, .28);
+      background:
+        linear-gradient(165deg, rgba(255, 255, 255, .1), transparent 36%),
+        linear-gradient(0deg, #6d6658, #454038);
+      overflow: hidden;
+    }
+
+    .frame::before {
+      content: "";
+      position: absolute;
+      inset: 52% 14% 0;
+      background: linear-gradient(90deg, #4c4538, #746d5f);
+      transform: skewX(-18deg);
+      opacity: .8;
+    }
+
+    .frame::after {
+      content: attr(data-time);
+      position: absolute;
+      left: 6px;
+      top: 6px;
+      padding: 2px 6px;
+      background: rgba(0, 0, 0, .72);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .red-zone {
+      position: absolute;
+      right: 10%;
+      bottom: 10%;
+      width: 48%;
+      height: 34%;
+      border: 2px dashed rgba(255, 72, 54, .9);
+      background: rgba(211, 66, 47, .22);
+    }
+
+    .person {
+      position: absolute;
+      width: 10px;
+      height: 30px;
+      left: 47%;
+      top: 25%;
+      border-radius: 7px;
+      background: #f1e7d0;
+      box-shadow: 0 -9px 0 -2px #f1e7d0;
+    }
+
+    .scaffold {
+      position: absolute;
+      left: 36%;
+      top: 27%;
+      width: 45px;
+      height: 56px;
+      border: 3px solid #d8c28a;
+      border-top-width: 4px;
+    }
+
+    .frame.tilt .scaffold,
+    .frame.tilt .person {
+      transform: rotate(14deg) translate(4px, 5px);
+      transform-origin: bottom left;
+    }
+
+    .frame.fall .person {
+      top: 65%;
+      left: 62%;
+      transform: rotate(82deg);
+    }
+
+    .monitor-body {
+      padding: 16px;
+      background: var(--paper);
+    }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff8df;
+    }
+
+    .verdict strong {
+      display: block;
+      font-size: 20px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--danger);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    section {
+      padding: 58px 0;
+    }
+
+    .section-title {
+      display: grid;
+      grid-template-columns: minmax(0, .85fr) minmax(260px, .55fr);
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin-bottom: 8px;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .section-title p,
+    .muted {
+      color: var(--muted);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .step,
+    .feature,
+    .artifact {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, .82);
+    }
+
+    .step {
+      position: relative;
+      min-height: 150px;
+      padding: 18px;
+    }
+
+    .step b {
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      margin-bottom: 16px;
+      border: 2px solid var(--ink);
+      background: var(--safety);
+      font-size: 15px;
+    }
+
+    .step h3,
+    .feature h3,
+    .artifact h3 {
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .feature,
+    .artifact {
+      padding: 20px;
+    }
+
+    .feature .tag {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 3px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--soft);
+      color: #4e493f;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .code-panel {
+      overflow: hidden;
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--code);
+      color: #f6efe0;
+    }
+
+    .code-title {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, .14);
+      color: #ffe391;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    code {
+      font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+    }
+
+    .table {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 16px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .row:last-child {
+      border-bottom: 0;
+    }
+
+    .row strong {
+      font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+
+    .quote {
+      border-left: 6px solid var(--danger);
+      padding: 18px 20px;
+      background: var(--paper);
+      color: #403a30;
+      font-weight: 700;
+    }
+
+    .footer {
+      padding: 34px 0 48px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+
+    .workspace-band {
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(47, 95, 115, .08) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(47, 95, 115, .08) 1px, transparent 1px),
+        rgba(255, 253, 248, .52);
+      background-size: 34px 34px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(320px, .9fr) minmax(420px, 1.1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .upload-card,
+    .analysis-panel {
+      border: 2px solid var(--ink);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fff8df;
+    }
+
+    .panel-head strong,
+    .panel-head span {
+      display: block;
+    }
+
+    .panel-head span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--ink) !important;
+      font-size: 12px !important;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .pill.idle {
+      background: #e6edf0;
+    }
+
+    .pill.running {
+      background: var(--safety);
+    }
+
+    .pill.done {
+      background: var(--ok);
+      color: #fff !important;
+    }
+
+    .video-drop {
+      display: grid;
+      place-items: center;
+      min-height: 230px;
+      margin: 16px;
+      padding: 24px;
+      border: 2px dashed #a99f8b;
+      border-radius: 8px;
+      background: #faf4e5;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .video-drop input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .drop-icon {
+      display: grid;
+      place-items: center;
+      width: 54px;
+      height: 54px;
+      margin-bottom: 12px;
+      border: 2px solid var(--ink);
+      border-radius: 50%;
+      background: var(--safety);
+      font-size: 34px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .video-drop strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .video-drop small {
+      max-width: 340px;
+      color: var(--muted);
+    }
+
+    .video-drop.has-file {
+      border-color: var(--ok);
+      background: #edf8f2;
+    }
+
+    .video-preview {
+      display: block;
+      width: calc(100% - 32px);
+      max-height: 260px;
+      margin: 0 16px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 0 16px 16px;
+    }
+
+    .control-grid label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .control-grid input,
+    .control-grid select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffdf8;
+      color: var(--ink);
+      font: inherit;
+      padding: 0 10px;
+    }
+
+    .analyze-button {
+      width: calc(100% - 32px);
+      margin: 0 16px 16px;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .analyze-button:disabled {
+      cursor: not-allowed;
+      opacity: .48;
+      box-shadow: none;
+    }
+
+    .stages {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 16px;
+    }
+
+    .stage {
+      min-height: 92px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8f3e9;
+    }
+
+    .stage b,
+    .stage span {
+      display: block;
+    }
+
+    .stage b {
+      margin-bottom: 10px;
+      color: var(--blueprint);
+      font-size: 13px;
+    }
+
+    .stage.active {
+      border-color: var(--ink);
+      background: var(--safety);
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+
+    .stage.complete {
+      border-color: var(--ok);
+      background: #e8f5ee;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 16px 16px;
+    }
+
+    .result-box {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffdf8;
+    }
+
+    .result-box span,
+    .result-box strong {
+      display: block;
+    }
+
+    .result-box span {
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .result-box strong {
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .result-json {
+      margin: 0 16px 16px;
+      box-shadow: none;
+    }
+    @media (max-width: 920px) {
+      .hero,
+      .section-title,
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+
+      .pipeline,
+      .grid-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 22px, 1180px);
+      }
+
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 12px 0;
+      }
+
+      .links {
+        justify-content: flex-start;
+      }
+
+      .hero {
+        padding-top: 44px;
+      }
+
+      h1 {
+        font-size: 38px;
+      }
+
+      .lead {
+        font-size: 17px;
+      }
+
+      .stats,
+      .pipeline,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .stat {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stat:last-child {
+        border-bottom: 0;
+      }
+
+      .sheet {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="shell nav" aria-label="주요 메뉴">
+      <div class="brand"><span class="mark">VL</span> SPilot Accident Judgment Agent</div>
+      <div class="links">
+        <a href="#workspace">Analyze</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#prompt">Prompt</a>
+        <a href="#schema">Schema</a>
+        <a href="#portfolio">Portfolio</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="shell hero">
+      <div>
+        <p class="eyebrow">Vision-Language Safety AI</p>
+        <h1>SPilot VL Accident Judgment Agent</h1>
+        <p class="lead">
+          건설현장 CCTV 영상을 contact sheet로 압축하고 Qwen2.5-VL이 사고 순간, 추락/낙상/화재 유형,
+          Red Zone 관련 근거를 JSON으로 판단하도록 설계한 사고 판단 에이전트입니다.
+        </p>
+        <div class="actions">
+          <a class="button" href="#workspace">영상 분석 UI 보기</a>
+          <a class="button secondary" href="PORTFOLIO.md">PORTFOLIO.md</a>
+        </div>
+        <div class="stats" aria-label="프로젝트 핵심 수치">
+          <div class="stat"><strong>2-step</strong><span>사고 순간 탐지 + 최종 판단</span></div>
+          <div class="stat"><strong>Qwen2.5-VL</strong><span>Colab 원격 VL 서버 연동</span></div>
+          <div class="stat"><strong>ERD</strong><span>SPilot 영상 파트 payload 변환</span></div>
+        </div>
+      </div>
+
+      <aside class="monitor" aria-label="Contact sheet 판단 예시">
+        <div class="monitor-head">
+          <span>accident_moment_sheet.jpg</span>
+          <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="sheet">
+          <div class="frame" data-time="4s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+          <div class="frame" data-time="8s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+          <div class="frame tilt" data-time="14s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+          <div class="frame tilt" data-time="16s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+          <div class="frame fall" data-time="17s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+          <div class="frame fall" data-time="18s"><span class="red-zone"></span><span class="scaffold"></span><span class="person"></span></div>
+        </div>
+        <div class="monitor-body">
+          <div class="verdict">
+            <div>
+              <strong>판단: 추락 / 전도</strong>
+              <span class="muted">Red Zone 진입은 사고 원인이 아니라 판단 근거 로그로 분리</span>
+            </div>
+            <span class="badge">confidence 0.85</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+
+    <section id="workspace" class="workspace-band">
+      <div class="shell">
+        <div class="section-title">
+          <div>
+            <h2>영상 입력에서 사고 분석까지 이어지는 화면 구조</h2>
+            <p>포트폴리오에서는 이 구성이 가장 설득력 있습니다. 단순 소개 페이지가 아니라, 사용자가 영상을 넣고 분석 결과를 받는 제품 화면처럼 보입니다.</p>
+          </div>
+          <p class="muted">아래 UI는 프론트엔드 구조 시안입니다. 실제 연동 시 <code>POST /api/agent/analyze-video</code>로 영상을 보내고, 분석 job 상태를 polling 또는 WebSocket으로 갱신하면 됩니다.</p>
+        </div>
+
+        <div class="workspace">
+          <section class="upload-card" aria-label="영상 입력">
+            <div class="panel-head">
+              <div>
+                <strong>1. 영상 업로드</strong>
+                <span>CCTV mp4를 넣으면 contact sheet 생성 준비</span>
+              </div>
+              <span class="pill">mp4 · mov · avi</span>
+            </div>
+            <label class="video-drop" for="videoInput">
+              <input id="videoInput" type="file" accept="video/*">
+              <span class="drop-icon">+</span>
+              <strong id="fileTitle">분석할 사고 영상을 선택하세요</strong>
+              <small id="fileMeta">파일을 넣으면 영상 미리보기와 분석 버튼이 활성화됩니다.</small>
+            </label>
+            <video id="videoPreview" class="video-preview" controls hidden></video>
+            <div class="control-grid">
+              <label><span>카메라</span><input value="Camera 15" aria-label="카메라 ID"></label>
+              <label><span>구역</span><input value="비계 하부 RED ZONE" aria-label="구역 이름"></label>
+              <label><span>분석 모드</span><select aria-label="분석 모드"><option>auto-moment + final judgment</option><option>target seconds only</option></select></label>
+              <label><span>보조 모델</span><select aria-label="보조 모델"><option>Qwen2.5-VL only</option><option>Qwen2.5-VL + YOLO .pt</option></select></label>
+            </div>
+            <button id="analyzeButton" class="button analyze-button" type="button" disabled>사고 분석 시작</button>
+          </section>
+
+          <section class="analysis-panel" aria-label="사고 분석 결과">
+            <div class="panel-head">
+              <div>
+                <strong>2. 사고 분석 Pipeline</strong>
+                <span id="analysisStatus">영상을 기다리는 중</span>
+              </div>
+              <span id="statusPill" class="pill idle">READY</span>
+            </div>
+            <div class="stages" aria-label="분석 단계">
+              <div class="stage" data-stage="0"><b>01</b><span>프레임 추출</span></div>
+              <div class="stage" data-stage="1"><b>02</b><span>contact sheet</span></div>
+              <div class="stage" data-stage="2"><b>03</b><span>VL 사고 판단</span></div>
+              <div class="stage" data-stage="3"><b>04</b><span>ERD payload</span></div>
+            </div>
+            <div class="result-grid">
+              <div class="result-box"><span>사고 유형</span><strong id="typeResult">대기</strong></div>
+              <div class="result-box"><span>사고 구간</span><strong id="timeResult">-</strong></div>
+              <div class="result-box"><span>신뢰도</span><strong id="confidenceResult">-</strong></div>
+            </div>
+            <div class="code-panel result-json">
+              <div class="code-title">judgement_agent_payload.json preview</div>
+              <pre><code id="jsonPreview">{
+  "status": "waiting_for_video",
+  "message": "영상 업로드 후 사고 분석을 시작하세요."
+}</code></pre>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+    <section id="pipeline" class="shell">
+      <div class="section-title">
+        <div>
+          <h2>영상 전체를 모델에 던지지 않고, 판단 가능한 장면으로 압축했습니다.</h2>
+          <p>로컬 에이전트가 mp4에서 대표 프레임을 뽑고 contact sheet를 만든 뒤, VL 모델이 시간순 변화를 비교합니다.</p>
+        </div>
+        <p class="muted">목표는 단순 이미지 분류가 아니라 “사고 전 행동 → 구조물 변화 → 사고 결과”를 JSON으로 구조화하는 것입니다.</p>
+      </div>
+      <div class="pipeline">
+        <article class="step"><b>1</b><h3>mp4 입력</h3><p class="muted">CCTV 사고 영상을 로컬 Agent가 읽습니다.</p></article>
+        <article class="step"><b>2</b><h3>프레임 추출</h3><p class="muted">overview와 사고 전후 프레임을 시간 라벨과 함께 구성합니다.</p></article>
+        <article class="step"><b>3</b><h3>VL 판단</h3><p class="muted">Qwen2.5-VL이 contact sheet를 보고 사고 순간과 유형을 판단합니다.</p></article>
+        <article class="step"><b>4</b><h3>JSON 검증</h3><p class="muted">primary_type, confidence, details, evidence를 schema 기준으로 확인합니다.</p></article>
+        <article class="step"><b>5</b><h3>DB payload</h3><p class="muted">SPilot ERD의 cctv_events, evidence_photos, tts_alert_logs로 변환합니다.</p></article>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="section-title">
+        <div>
+          <h2>구현 포인트</h2>
+          <p>사고 판단 모델을 서비스 DB와 바로 섞지 않고, 관찰 → 판단 → 저장 payload를 분리했습니다.</p>
+        </div>
+      </div>
+      <div class="grid-3">
+        <article class="feature">
+          <span class="tag">Accident Moment</span>
+          <h3>사고 순간 후보 탐지</h3>
+          <p class="muted">`--auto-moment` 옵션으로 전체 영상 overview sheet를 먼저 보고 사고 발생 시점 후보를 찾습니다.</p>
+        </article>
+        <article class="feature">
+          <span class="tag">Prompt Design</span>
+          <h3>보이는 사실만 판단</h3>
+          <p class="muted">교육 여부, 승인 여부, 사망 여부처럼 영상에서 확인할 수 없는 내용은 단정하지 않도록 프롬프트를 제한했습니다.</p>
+        </article>
+        <article class="feature">
+          <span class="tag">Red Zone</span>
+          <h3>위험구역과 사고 판단 분리</h3>
+          <p class="muted">Red Zone 진입은 사고 자체가 아니라 사고 경위의 증거 로그 또는 경고 이벤트로 사용합니다.</p>
+        </article>
+        <article class="feature">
+          <span class="tag">PT Adapter</span>
+          <h3>YOLO 모델 결합 준비</h3>
+          <p class="muted">`.pt` 파일 검증과 선택적 YOLO 추론 결과를 VL 프롬프트 보조 정보로 연결할 수 있게 했습니다.</p>
+        </article>
+        <article class="feature">
+          <span class="tag">Fallback</span>
+          <h3>VL 응답 안정화</h3>
+          <p class="muted">응답이 JSON이 아니거나 반복 토큰으로 깨지는 경우를 감지해 재시도 또는 fallback 판단을 적용합니다.</p>
+        </article>
+        <article class="feature">
+          <span class="tag">Portfolio Copy</span>
+          <h3>실행 산출물과 코드 분리</h3>
+          <p class="muted">output, video, model 파일은 Git 추적에서 제외하고 포트폴리오용 구현 사본만 정리했습니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="prompt" class="shell">
+      <div class="section-title">
+        <div>
+          <h2>프롬프트는 “사고 원인 추정”보다 “시각 근거 기반 판단”에 초점을 맞췄습니다.</h2>
+          <p>특히 이동식 비계 사고에서 낙상과 추락을 혼동하지 않도록, 구조물 상태와 작업자 위치 변화를 시간순으로 보게 했습니다.</p>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="code-panel">
+          <div class="code-title">VL 판단 스키마 일부</div>
+          <pre><code>{
+  "primary_type": "낙상|추락|화재|기타",
+  "secondary_type": "없음|전도|RED_ZONE_ENTRY|기타",
+  "confidence": 0.0,
+  "timeline": [
+    {
+      "time": "16s",
+      "description": "핵심 장면",
+      "structure_state": "정상|이동|기울어짐|전도|불확실"
+    }
+  ],
+  "red_zone_analysis": {
+    "entry_detected": true,
+    "zone_relation_to_accident": "직접 관련|간접 관련|관련 없음"
+  },
+  "details": "[사고 경위]\n시간순 원인-결과 흐름"
+}</code></pre>
+        </div>
+        <div>
+          <div class="quote">
+            “단순 RED ZONE 진입만으로 사고라고 쓰지 말고, 실제 전도/추락이 보일 때만 사고 발생으로 쓰세요.”
+          </div>
+          <p class="muted" style="margin-top:18px">
+            이 제한 덕분에 위험구역 진입 경고와 실제 사고 판단이 분리됩니다. 이후 저장 단계에서는 RED ZONE을
+            `tts_alert_logs` 또는 사고 경위의 근거로 매핑하고, 사고 유형은 `cctv_events.agent_verdict`에 정규화합니다.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="schema" class="shell">
+      <div class="section-title">
+        <div>
+          <h2>Qwen 출력은 그대로 저장하지 않고 SPilot ERD payload로 변환합니다.</h2>
+          <p>LLM은 판단 JSON을 만들고, 로컬 mapper가 서비스 테이블에 맞는 안정적인 row 형태로 바꿉니다.</p>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="table" role="table" aria-label="Agent 결과와 DB 매핑">
+          <div class="row"><strong>primary_type</strong><span>사고 유형을 `worker_fall_from_height`, `worker_slip_and_fall`, `fire_or_smoke` 라벨로 변환</span></div>
+          <div class="row"><strong>details</strong><span>`cctv_events.agent_summary`에 사고 경위로 저장</span></div>
+          <div class="row"><strong>confidence</strong><span>`cctv_events.confidence`, `evidence_photos.confidence`에 반영</span></div>
+          <div class="row"><strong>contact sheet</strong><span>`snapshot_path`, `evidence_photos.photo_url`에 증거 이미지로 연결</span></div>
+          <div class="row"><strong>red_zone_analysis</strong><span>`tts_alert_logs` 메시지와 사고 경위 근거로 사용</span></div>
+        </div>
+        <div class="code-panel">
+          <div class="code-title">실행 예시</div>
+          <pre><code>python -m agent.run_remote_judgment \
+  --video C:\spilot\backend\agent\video\accident_video.mp4 \
+  --auto-moment \
+  --pt-model C:\spilot\backend\model\best.pt \
+  --run-pt \
+  --insert-db</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="portfolio" class="shell">
+      <div class="section-title">
+        <div>
+          <h2>포트폴리오에서 강조할 점</h2>
+          <p>단순 모델 호출보다 “현장 영상 데이터를 서비스 DB로 연결하는 판단 파이프라인”을 설계했다는 점이 핵심입니다.</p>
+        </div>
+      </div>
+      <div class="grid-3">
+        <article class="artifact"><h3>문제 정의</h3><p class="muted">건설현장 사고 영상을 사람이 매번 확인하지 않아도, 사고 발생 구간과 경위를 구조화합니다.</p></article>
+        <article class="artifact"><h3>내 역할</h3><p class="muted">VL 프롬프트 설계, contact sheet 생성 흐름, Qwen 서버 연동, JSON 검증, ERD payload 변환 구현.</p></article>
+        <article class="artifact"><h3>확장 방향</h3><p class="muted">YOLO/PT 모델과 tracking을 결합해 작업자 식별과 시간 안정성을 높이고, 이후 RAG 법령 Agent와 연결합니다.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">
+      Source reference: <a href="https://github.com/Focus-Report/SPliot">Focus-Report/SPliot</a> · Portfolio copy for SPilot VL Agent
+    </div>
+  </footer>
+  <script>
+    const videoInput = document.querySelector('#videoInput');
+    const videoDrop = document.querySelector('.video-drop');
+    const videoPreview = document.querySelector('#videoPreview');
+    const fileTitle = document.querySelector('#fileTitle');
+    const fileMeta = document.querySelector('#fileMeta');
+    const analyzeButton = document.querySelector('#analyzeButton');
+    const analysisStatus = document.querySelector('#analysisStatus');
+    const statusPill = document.querySelector('#statusPill');
+    const stages = [...document.querySelectorAll('.stage')];
+    const typeResult = document.querySelector('#typeResult');
+    const timeResult = document.querySelector('#timeResult');
+    const confidenceResult = document.querySelector('#confidenceResult');
+    const jsonPreview = document.querySelector('#jsonPreview');
+
+    function formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return `${(bytes / Math.pow(1024, index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+    }
+
+    function setStage(activeIndex) {
+      stages.forEach((stage, index) => {
+        stage.classList.toggle('complete', index < activeIndex);
+        stage.classList.toggle('active', index === activeIndex);
+      });
+    }
+
+    videoInput?.addEventListener('change', () => {
+      const file = videoInput.files?.[0];
+      if (!file) return;
+      fileTitle.textContent = file.name;
+      fileMeta.textContent = `${formatBytes(file.size)} · ${file.type || 'video file'}`;
+      videoDrop.classList.add('has-file');
+      analyzeButton.disabled = false;
+      videoPreview.src = URL.createObjectURL(file);
+      videoPreview.hidden = false;
+      analysisStatus.textContent = '분석 준비 완료';
+      statusPill.textContent = 'READY';
+      statusPill.className = 'pill idle';
+    });
+
+    analyzeButton?.addEventListener('click', async () => {
+      const steps = ['프레임 추출 중', 'contact sheet 생성 중', 'Qwen2.5-VL 사고 판단 중', 'SPilot ERD payload 변환 중'];
+      analyzeButton.disabled = true;
+      statusPill.textContent = 'RUNNING';
+      statusPill.className = 'pill running';
+      typeResult.textContent = '분석 중';
+      timeResult.textContent = '-';
+      confidenceResult.textContent = '-';
+
+      for (let index = 0; index < steps.length; index += 1) {
+        setStage(index);
+        analysisStatus.textContent = steps[index];
+        await new Promise(resolve => setTimeout(resolve, 520));
+      }
+
+      stages.forEach(stage => {
+        stage.classList.remove('active');
+        stage.classList.add('complete');
+      });
+      analysisStatus.textContent = '추락 사고 분석 완료';
+      statusPill.textContent = 'DONE';
+      statusPill.className = 'pill done';
+      typeResult.textContent = '추락 / 전도';
+      timeResult.textContent = '14s - 18s';
+      confidenceResult.textContent = '0.85';
+      jsonPreview.textContent = JSON.stringify({
+        judgment: {
+          accident_type: 'fall_from_height',
+          accident_type_ko: '추락',
+          agent_verdict: 'accident',
+          confidence: 0.85,
+          details: '[사고 경위]\nRED ZONE 접근 이후 이동식 비계가 이동 또는 기울어지고 상부 작업자가 추락한 것으로 판단됩니다.'
+        },
+        video_part_tables: {
+          cctv_events: [{ label: 'worker_fall_from_height', clip_start_offset: 14, clip_end_offset: 18 }],
+          evidence_photos: [{ source_type: 'cctv_capture', is_representative: true }],
+          tts_alert_logs: [{ message: '추락 사고 의심 상황이 감지되었습니다. 즉시 작업을 중지하십시오.' }]
+        }
+      }, null, 2);
+      analyzeButton.disabled = false;
+    });
+  </script>
+</body>
+</html>
+
+
