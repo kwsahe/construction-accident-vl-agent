@@ -1,177 +1,160 @@
-# SPilot VL Accident Judgment Agent
+# Construction Accident VL Agent
 
-건설현장 CCTV 영상을 프레임 단위로 분석해 사고 발생 여부, 사고 유형, 사고 경위, 사고 원인 관련 근거를 판단하는 Vision-Language Agent 프로토타입입니다.
+건설현장 CCTV 사고 영상을 업로드하면, 주요 프레임을 contact sheet로 압축하고 Vision-Language 모델이 사고 유형, 부상자 수, 사고 원인을 구조화해 판단하는 포트폴리오 프로젝트입니다.
 
-이 폴더는 포트폴리오 제출용으로 기존 SPilot 프로젝트의 `backend/agent` 구현을 분리한 사본입니다. 실제 서비스 연동 코드는 원본 프로젝트에 남아 있으며, 이 폴더는 VL Agent 설계와 구현 흐름을 독립적으로 설명하기 위한 용도입니다.
+핵심은 단순 모델 호출이 아니라 `mp4 업로드 -> video 폴더 저장 -> 프레임 추출 -> Qwen VL 판단 -> JSON 검증 -> 분석 payload 변환`까지 이어지는 파이프라인입니다.
 
 ## 목표
 
-- CCTV 영상에서 사고 발생 순간 탐지
-- 사고 유형 분류: 추락, 낙상, 화재, 기타
-- 사고 전 행동과 구조물 변화를 사고 원인 판단의 근거로 활용
-- 이동식 비계 작업 중 사고 경위 생성
-- Qwen2.5-VL 서버와 연동해 사고 판단 JSON 생성
-- SPilot ERD의 영상 파트 테이블 payload로 변환
+- CCTV 영상에서 사고 발생 구간을 찾습니다.
+- 사고 유형을 `추락`, `낙상`, `화재`, `기타`로 분류합니다.
+- 영상에서 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 원인을 판단합니다.
+- 사고와 직접 관련된 부상자 수를 보수적으로 추정합니다.
+- Qwen2.5-VL 서버와 연동해 사고 판단 JSON을 생성합니다.
+- 판단 결과를 서비스 DB에 전달 가능한 payload 형태로 변환합니다.
+
+## 기술 스택
+
+- Frontend: React + Vite + TypeScript
+- Backend: FastAPI
+- VL Server: Colab + Qwen2.5-VL
+- Video Processing: OpenCV
+- Optional Detector: YOLO `.pt` adapter
 
 ## 핵심 아이디어
 
-원본 mp4 전체를 VL 모델에 직접 넣는 방식이 아니라, 로컬 Agent가 영상에서 의미 있는 프레임을 추출해 contact sheet 이미지를 만들고, Qwen2.5-VL이 그 contact sheet를 보고 판단합니다.
+원본 mp4 전체를 모델에 직접 넣지 않고, 로컬 Agent가 영상에서 의미 있는 프레임을 추출해 contact sheet 이미지를 만듭니다. VL 모델은 이 contact sheet를 보고 시간순 변화를 비교합니다.
 
 ```text
 mp4 영상
+-> video 폴더 저장
 -> 프레임 추출
 -> 사고 전후 contact sheet 생성
 -> Qwen2.5-VL 판단
--> 사고 유형/details JSON 생성
--> SPilot DB payload 변환
+-> 사고 유형 / 부상자 수 / 원인 JSON 생성
+-> 분석 payload 변환
 ```
 
 ## 주요 기능
 
-### 1. 사고 순간 탐지
+### 1. 영상 업로드
 
-`--auto-moment` 옵션을 사용하면 VL이 전체 영상의 대표 프레임을 먼저 보고 사고 발생 시점 후보를 찾습니다.
+프론트엔드에서 mp4, mov, avi, mkv 파일을 선택하면 FastAPI 백엔드가 루트 `video/` 폴더에 저장합니다. 이미 저장된 영상 목록도 UI에서 다시 선택할 수 있습니다.
+
+### 2. 사고 순간 탐지
+
+`--auto-moment` 옵션을 사용하면 먼저 overview contact sheet를 만들고, VL 모델이 사고가 실제로 시작되는 시간대를 찾습니다.
 
 판단 기준:
 
 - 사람이 높은 위치에서 아래로 급격히 이동하는지
-- 비계 또는 구조물이 기울거나 전도되는지
-- 단순 작업자 이동인지, 실제 추락/낙상 사고인지
+- 구조물이 이동, 기울어짐, 전도되는지
+- 같은 바닥면에서 미끄러지거나 넘어진 상황인지
 - 사고 전후 프레임 사이에 명확한 위치 변화가 있는지
 
-### 2. 사고 유형 판단
+### 3. 사고 유형 및 원인 판단
 
-VL 판단 결과는 아래 유형으로 정리됩니다.
+최종 판단은 다음 정보를 JSON으로 생성합니다.
 
-- `fall_from_height`: 추락
-- `slip_and_fall`: 낙상
-- `fire_explosion`: 화재
-- `other`: 기타
+- `primary_type`: 낙상, 추락, 화재, 기타
+- `injured_count`: 사고와 직접 관련된 부상자 수
+- `cause`: 관찰 가능한 원인 흐름
+- `timeline`: 시간대별 장면 변화
+- `evidence`: 판단에 사용한 시각 근거
+- `details`: 사고 경위 설명
 
-이동식 비계, 작업발판, 사다리 등 높은 위치에서 바닥 방향으로 떨어지는 단서가 있으면 추락으로 분류합니다. 단순히 사람이 바닥에 누워 있다는 이유만으로 추락으로 단정하지 않도록 프롬프트를 구성했습니다.
+사고 원인은 법적 책임이나 과실을 단정하지 않고, 영상에서 관찰 가능한 변화만 근거로 작성합니다.
 
-### 3. 사고 원인 근거 활용
+### 4. 분석 payload 변환
 
-사고 전 행동, 구조물 변화, 작업자 위치 변화는 사고 원인을 설명하는 근거로 사용합니다.
+Qwen 출력은 바로 DB row로 저장하지 않고, `agent/save_judgment.py`에서 서비스 전달용 payload로 변환합니다.
 
-예시 판단 흐름:
-
-```text
-사고 전 행동
--> 비계 하부 접근 또는 조작 가능성
--> 비계 이동/기울어짐/전도 위험
--> 상부 작업자 추락
-```
-
-단, 승인 여부, 교육 여부, 사망 여부처럼 영상에서 직접 확인할 수 없는 내용은 단정하지 않도록 제한했습니다.
-
-### 4. 사고 경위 details 생성
-
-최종 JSON에는 `details`가 포함됩니다.
-
-예시:
-
-```text
-[사고 경위]
-Qwen2.5-VL 사고 순간 탐지 결과, 16초 전후 실제 사고 발생이 감지되었습니다.
-현장 상황은 건설현장 CCTV 사고 영상이며, 사고 전 행동과 구조물/사람 위치 변화를 중심으로 판단합니다.
-사람이 높은 작업 위치에서 바닥 방향으로 급격히 이동하는 장면이 확인되므로,
-동일 평면 낙상이 아니라 이동식 비계 작업 중 상부 작업자의 추락 사고로 판단합니다.
-```
-
-### 5. DB payload 변환
-
-Qwen 판단 결과는 바로 DB row가 아니라 SPilot ERD에 맞는 payload로 변환됩니다.
-
-주요 매핑:
-
-| Agent 결과 | DB 테이블/컬럼 |
+| Agent 결과 | Payload 필드 |
 | --- | --- |
-| 사고 판단 | `cctv_events.agent_verdict` |
-| 사고 경위 | `cctv_events.agent_summary` |
-| 영상 경로 | `cctv_events.clip_path` |
-| 사고 구간 시작 | `cctv_events.clip_start_offset` |
-| 사고 구간 종료 | `cctv_events.clip_end_offset` |
-| contact sheet | `evidence_photos.photo_url` |
+| 사고 판단 | `judgment.agent_verdict` |
+| 사고 유형 | `judgment.accident_type` |
+| 사고 경위 | `judgment.details` |
+| 영상 경로 | `video_part_tables.cctv_events[].clip_path` |
+| 사고 구간 | `clip_start_offset`, `clip_end_offset` |
+| 증거 이미지 | `video_part_tables.evidence_photos[].photo_url` |
 
-## 파일 구성
+## 실행 방법
 
-```text
-VL/
-  README.md
-  STRUCTURE.md
-  agent/
-    run_remote_judgment.py
-    save_judgment.py
-    pt_detector.py
-    schemas.py
-    env.py
-    test_json_payload.py
-    Judgement_Agent_qwen25_vl_7b_colab_server.ipynb
-    .env.example
-    ORIGINAL_AGENT_README.md
+### 1. Conda 환경 생성
+
+```powershell
+conda create -n construction-vl python=3.11 -y
+conda activate construction-vl
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-## 실행 흐름
+### 2. 프론트엔드 설치
 
-### 1. Colab에서 Qwen2.5-VL 서버 실행
-
-`agent/Judgement_Agent_qwen25_vl_7b_colab_server.ipynb`를 Colab에서 실행합니다.
-
-서버가 실행되면 ngrok 주소가 출력됩니다.
-
-```text
-LLM_API_BASE=https://xxxxx.ngrok-free.app/v1
+```powershell
+npm install
 ```
 
-### 2. 환경변수 설정
+### 3. Colab Qwen 서버 실행
 
-`.env.example`을 참고해 `.env`를 구성합니다.
+`agent/Judgement_Agent_qwen25_vl_32b_colab_server.ipynb`를 Colab에서 실행합니다.
+
+Colab Pro 환경에서는 `Qwen/Qwen2.5-VL-32B-Instruct`를 우선 추천합니다. VRAM이 부족하면 `Qwen/Qwen2.5-VL-7B-Instruct`로 낮춰 실행합니다.
+
+서버가 실행되면 ngrok 주소를 확인합니다.
+
+```text
+https://xxxxx.ngrok-free.app/v1
+```
+
+### 4. 환경 변수 설정
+
+`agent/.env.example`을 참고해 `agent/.env`를 만듭니다.
 
 ```env
 LLM_PROVIDER=remote_openai
-LLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+LLM_MODEL=Qwen/Qwen2.5-VL-32B-Instruct
 LLM_API_BASE=https://xxxxx.ngrok-free.app/v1
 LLM_API_KEY=dummy
 ```
 
-### 3. 로컬 Agent 실행
-
-원본 프로젝트 기준 실행 예시는 아래와 같습니다.
+### 5. 백엔드 실행
 
 ```powershell
-cd C:\spilot\backend
-uv run python -m agent.run_remote_judgment --video C:\spilot\backend\agent\video\accident_video.mp4 --auto-moment --insert-db
+uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-이 포트폴리오 폴더는 독립 실행용 패키징이 아니라 구현 사본이므로, 실제 실행은 원본 SPilot 프로젝트의 backend 환경에서 수행하는 것을 기준으로 합니다.
+### 6. 프론트엔드 실행
 
-## 산출물
+```powershell
+npm run dev
+```
 
-실행 시 원본 프로젝트에서는 아래 파일들이 자동 생성됩니다.
+브라우저에서 `http://127.0.0.1:5173`을 엽니다.
+
+## 주요 산출물
+
+실행 후 `agent/output/`에 다음 파일이 생성됩니다.
 
 ```text
-backend/agent/output/accident_moment_sheet.jpg
-backend/agent/output/spilot_judgment_result.json
-backend/agent/output/judgement_agent_payload.json
-backend/agent/output/pt_detection_result.json
+agent/output/accident_overview_sheet.jpg
+agent/output/accident_moment_detection.json
+agent/output/accident_moment_sheet.jpg
+agent/output/accident_judgment_result.json
+agent/output/accident_analysis_payload.json
+agent/output/pt_detection_result.json
 ```
-
-이 파일들은 실행 결과이므로 Git에 포함하지 않습니다. 팀원이 pull해도 각자 실행하면 자동으로 다시 생성됩니다.
 
 ## 구현 포인트
 
-- 영상 전체를 모델에 직접 넣지 않고 contact sheet 방식으로 VL 입력을 경량화
-- 사고 유형 분류와 사고 원인 설명을 분리
-- 사고 판단은 VL이 수행하고, 원인 근거는 timeline/evidence로 분리
-- Qwen 출력값을 그대로 쓰지 않고 ERD payload로 변환
-- output 산출물은 Git 추적에서 제외해 다른 개발자의 결과와 충돌하지 않게 정리
-- 실제 DB 저장 흐름과 포트폴리오 설명 흐름을 분리
+- 영상 업로드와 분석 실행을 프론트엔드에서 하나의 흐름으로 연결했습니다.
+- mp4 원본을 `video/` 폴더에 저장하고, 저장된 파일을 기준으로 분석합니다.
+- VL 판단은 사고 유형보다 원인 설명에 더 높은 우선순위를 둡니다.
+- Qwen 응답은 JSON 검증과 fallback 처리를 거쳐 안정화합니다.
+- 분석 결과를 서비스 DB에 맞는 payload로 변환해 후속 시스템과 연결할 수 있게 했습니다.
 
-## 한계 및 개선 방향
+## 확장 방향
 
-- 현재는 특정 테스트 영상에 맞춘 사고 구간 후보 추출 로직이 포함되어 있습니다.
-- 실제 운영에서는 YOLO 추론 결과와 VL 프레임 판단을 더 긴 시간 윈도우로 안정화해야 합니다.
-- 작업자 A/B/C 식별은 pt 모델 또는 tracking 모델과 결합해야 더 정확해집니다.
-- 원인 판단은 현재 contact sheet 기반이며, 향후 tracking/pose 추정과 결합해 안정화할 수 있습니다.
-- 사고 판단 이후 법령 분석은 별도의 14B RAG Agent가 담당합니다.
+- YOLO/PT 모델과 tracking을 결합해 작업자 식별과 시간 안정성을 높입니다.
+- pose estimation을 추가해 추락, 낙상, 충돌 상황의 근거를 강화합니다.
+- 사고 판단 이후 RAG 법령 Agent와 연결해 관련 규정과 예방 조치를 추천합니다.

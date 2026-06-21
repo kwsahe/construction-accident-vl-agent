@@ -18,7 +18,7 @@ VIDEO_DIR = ROOT_DIR / "video"
 AGENT_OUTPUT_DIR = ROOT_DIR / "agent" / "output"
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
 
-app = FastAPI(title="SPilot VL Accident Analysis API")
+app = FastAPI(title="Construction Accident VL Analysis API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,8 +83,8 @@ def analyze_video(
         raise HTTPException(status_code=404, detail="분석할 mp4 파일을 찾을 수 없습니다.")
 
     AGENT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = AGENT_OUTPUT_DIR / "judgement_agent_payload.json"
-    raw_output_path = AGENT_OUTPUT_DIR / "spilot_judgment_result.json"
+    output_path = AGENT_OUTPUT_DIR / "accident_analysis_payload.json"
+    raw_output_path = AGENT_OUTPUT_DIR / "accident_judgment_result.json"
     env = os.environ.copy()
     if api_base.strip():
         env["LLM_API_BASE"] = api_base.strip()
@@ -121,7 +121,7 @@ def analyze_video(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"분석 시간이 초과되었습니다: {exc}") from exc
+        raise HTTPException(status_code=504, detail=f"분석 시간이 초과되었습니다. {exc}") from exc
 
     if completed.returncode != 0:
         raise HTTPException(
@@ -185,13 +185,13 @@ def _estimate_injured_count(raw: dict[str, Any], judgment: dict[str, Any]) -> in
         if injured:
             return len(injured)
     text = json.dumps(raw, ensure_ascii=False) + json.dumps(judgment, ensure_ascii=False)
-    return 1 if any(token in text for token in ("추락", "낙상", "쓰러", "부상", "피해자")) else 0
+    return 1 if any(token in text for token in ("추락", "낙상", "넘어", "부상", "피해")) else 0
 
 
 def _extract_cause(details: Any) -> str:
     text = str(details or "").strip()
-    if "원인-결과 흐름은" in text:
-        return text.split("원인-결과 흐름은", 1)[1].split("\n", 1)[0].strip(" .")
+    if "원인-결과 흐름" in text:
+        return text.split("원인-결과 흐름", 1)[1].split("\n", 1)[0].strip(" .:")
     if "->" in text:
         return text.split("\n")[-1].strip()
     return text[:180]

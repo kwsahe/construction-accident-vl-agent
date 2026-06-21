@@ -5,7 +5,7 @@ not insert rows into the Django database.
 
 Examples:
     python -m agent.test_json_payload
-    python -m agent.test_json_payload --raw agent/output/spilot_judgment_result.json
+    python -m agent.test_json_payload --raw agent/output/accident_judgment_result.json
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Judgement Agent JSON outputs.")
     parser.add_argument(
         "--raw",
-        default=str(DEFAULT_OUTPUT_DIR / "spilot_judgment_result.json"),
+        default=str(DEFAULT_OUTPUT_DIR / "accident_judgment_result.json"),
         help="Raw Qwen judgement JSON path",
     )
     parser.add_argument(
         "--payload",
-        default=str(DEFAULT_OUTPUT_DIR / "judgement_agent_payload.json"),
+        default=str(DEFAULT_OUTPUT_DIR / "accident_analysis_payload.json"),
         help="Schema payload JSON path",
     )
     parser.add_argument(

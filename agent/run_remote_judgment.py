@@ -5,15 +5,15 @@ Colab should only host the LLM server. This script runs locally:
 2. Extract accident-moment frames from an mp4.
 3. Build a small cropped contact sheet.
 4. Send it to the Colab /v1/chat/completions endpoint.
-5. Validate and save the result in the SPilot agent schema.
+5. Validate and save the result in the construction accident analysis schema.
 
 Example:
-    python -m agent.run_remote_judgment --video C:\spilot\backend\agent\video\accident_video.mp4
-    python -m agent.run_remote_judgment --video C:\spilot\backend\agent\video\accident_video.mp4 --insert-db
+    python -m agent.run_remote_judgment --video video\accident_video.mp4
+    python -m agent.run_remote_judgment --video video\accident_video.mp4 --insert-db
 
 Test:
-    python -m agent.run_remote_judgment --video C:\spilot\backend\agent\video\accident_video.mp4 --auto-moment
-    python -m agent.run_remote_judgment --video C:\spilot\backend\agent\video\accident_video.mp4 --auto-moment --pt-model C:\spilot\backend\agent\models\best.pt --run-pt
+    python -m agent.run_remote_judgment --video video\accident_video.mp4 --auto-moment
+    python -m agent.run_remote_judgment --video video\accident_video.mp4 --auto-moment --pt-model .\agent\models\best.pt --run-pt
 """
 
 from __future__ import annotations
@@ -308,8 +308,8 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Run local judgement orchestration against Colab Qwen server.")
     parser.add_argument("--video", required=True, help="Local mp4 path")
-    parser.add_argument("--output", default=str(DEFAULT_OUTPUT_DIR / "judgement_agent_payload.json"))
-    parser.add_argument("--raw-output", default=str(DEFAULT_OUTPUT_DIR / "spilot_judgment_result.json"))
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT_DIR / "accident_analysis_payload.json"))
+    parser.add_argument("--raw-output", default=str(DEFAULT_OUTPUT_DIR / "accident_judgment_result.json"))
     parser.add_argument("--sheet-output", default=str(DEFAULT_OUTPUT_DIR / "accident_moment_sheet.jpg"))
     parser.add_argument("--moment-output", default=str(DEFAULT_OUTPUT_DIR / "accident_moment_detection.json"))
     parser.add_argument("--overview-output", default=str(DEFAULT_OUTPUT_DIR / "accident_overview_sheet.jpg"))

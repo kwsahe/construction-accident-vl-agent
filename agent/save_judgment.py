@@ -1,4 +1,4 @@
-"""Save a Colab/Qwen judgement result in the SPilot agent schema.
+"""Save a Colab/Qwen judgment result in the construction accident analysis schema.
 
 Examples:
     python -m agent.save_judgment --input agent/output/colab_judgment.json
@@ -36,9 +36,9 @@ DEFAULT_OUTPUT_DIR = AGENT_DIR / "output"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Save Qwen judgement output in SPilot schema.")
+    parser = argparse.ArgumentParser(description="Save Qwen judgment output in the accident analysis schema.")
     parser.add_argument("--input", "-i", required=True, help="Colab judgement JSON file path")
-    parser.add_argument("--output", "-o", default=str(DEFAULT_OUTPUT_DIR / "judgement_agent_payload.json"))
+    parser.add_argument("--output", "-o", default=str(DEFAULT_OUTPUT_DIR / "accident_analysis_payload.json"))
     parser.add_argument("--insert-db", action="store_true", help="Insert video-part rows into Django DB (direct ORM)")
     parser.add_argument("--api-url", default="", help="Django API base URL (e.g. http://127.0.0.1:8000). POST /api/agent/ingest 로 전송합니다.")
     parser.add_argument("--camera-id", default="Camera 15")
@@ -156,7 +156,7 @@ def build_agent_output(
         summary=summary,
         details=details,
         evidence=[str(item) for item in evidence],
-        model="Qwen/Qwen2.5-VL-7B-Instruct",
+        model="Qwen/Qwen2.5-VL-32B-Instruct",
         raw=raw,
     )
     event_logs = _event_logs_from_judgment(raw, observation, judgment)
@@ -166,7 +166,7 @@ def build_agent_output(
         video_part_tables=_video_part_tables(observation, judgment, event_logs, pt_status),
         pt_status=pt_status or {
             "status": "qwen_saved",
-            "message": "Qwen2.5-VL 판단 결과를 로컬 SPilot 스키마로 저장했습니다.",
+            "message": "Qwen2.5-VL 판단 결과를 사고 분석 payload로 저장했습니다.",
             "saved_at": now_iso(),
         },
     )
@@ -451,7 +451,7 @@ def _tts_rows(
         if judgment.accident_type == "slip_and_fall":
             message = "낙상 사고 의심 상황이 감지되었습니다. 즉시 작업을 중지하고 현장을 확인하십시오."
         if judgment.accident_type == "fire_explosion":
-            message = "화재 위험이 감지되었습니다. 즉시 대피하고 초기 대응을 준비하십시오."
+            message = "화재 또는 폭발 위험이 감지되었습니다. 즉시 대피하고 초기 대응을 준비하십시오."
         event_logs = [EventLog(
             event_type="ACCIDENT_ALERT",
             label="accident_detected",
@@ -477,11 +477,10 @@ def _tts_rows(
 
 def _summary_for(accident_type: str) -> str:
     return {
-        "fall_from_height": "이동식 비계 또는 고소작업 중 추락 사고가 의심됩니다.",
-        "slip_and_fall": "동일 평면에서 넘어짐 또는 미끄러짐 사고가 의심됩니다.",
+        "fall_from_height": "고소작업 또는 높은 위치에서 추락 사고가 의심됩니다.",
+        "slip_and_fall": "동일 평면에서 미끄러짐 또는 넘어짐 사고가 의심됩니다.",
         "fire_explosion": "화재 또는 폭발 사고가 의심됩니다.",
     }.get(accident_type, "사고 유형 판단이 불확실합니다.")
-
 
 def _safe_float(value: Any, default: float) -> float:
     try:

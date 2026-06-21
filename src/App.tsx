@@ -31,7 +31,7 @@ type AnalysisResponse = {
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000';
-const stages = ['video 폴더 저장', '프레임 추출', 'VL 사고 판단', 'ERD payload'];
+const stages = ['video 폴더 저장', '프레임 추출', 'VL 사고 판단', '분석 payload'];
 
 function formatBytes(bytes: number) {
   if (!bytes) return '0 B';
@@ -51,7 +51,9 @@ function App() {
   const [error, setError] = useState('');
   const [apiBase, setApiBase] = useState('');
   const [cameraId, setCameraId] = useState('Camera 15');
-  const [sceneContext, setSceneContext] = useState('건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 원인을 판단합니다.');
+  const [sceneContext, setSceneContext] = useState(
+    '건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 유형과 원인을 판단합니다.',
+  );
 
   useEffect(() => {
     refreshVideos().catch(() => undefined);
@@ -74,7 +76,7 @@ function App() {
         {
           status,
           current_stage: stages[Math.max(activeStage, 0)],
-          message: 'mp4 저장 및 VL 사고 분석을 진행하고 있습니다.',
+          message: 'mp4 저장과 VL 사고 분석을 진행하고 있습니다.',
         },
         null,
         2,
@@ -166,7 +168,7 @@ function App() {
     <>
       <header className="topbar">
         <nav className="shell nav" aria-label="주요 메뉴">
-          <div className="brand"><span className="mark">VL</span> SPilot Accident Judgment Agent</div>
+          <div className="brand"><span className="mark">VL</span> Construction Accident VL Agent</div>
           <div className="links">
             <a href="#workspace">Analyze</a>
             <a href="#pipeline">Pipeline</a>
@@ -206,7 +208,7 @@ function App() {
 
       <footer className="footer">
         <div className="shell">
-          Source reference: <a href="https://github.com/Focus-Report/SPliot">Focus-Report/SPliot</a> · React + FastAPI VL analysis app
+          Construction Accident VL Agent · React + FastAPI accident analysis app
         </div>
       </footer>
     </>
@@ -227,10 +229,10 @@ function Hero() {
     <section className="shell hero">
       <div>
         <p className="eyebrow">Vision-Language Safety AI</p>
-        <h1>SPilot VL Accident Judgment Agent</h1>
+        <h1>Construction Accident VL Agent</h1>
         <p className="lead">
           CCTV 사고 영상을 넣으면 프레임 추출, contact sheet 생성, Qwen2.5-VL 판단,
-          사고 유형·부상자 수·원인 분석과 SPilot ERD payload 변환까지 이어지는 워크플로우입니다.
+          사고 유형·부상자 수·원인 분석과 분석 결과 payload 생성까지 이어지는 워크플로우입니다.
         </p>
         <div className="actions">
           <a className="button" href="#workspace">영상 분석 UI 보기</a>
@@ -239,7 +241,7 @@ function Hero() {
         <div className="stats" aria-label="프로젝트 핵심 수치">
           <div className="stat"><strong>mp4</strong><span>프론트 업로드 후 video 폴더 저장</span></div>
           <div className="stat"><strong>VL</strong><span>사고 유형·부상자·원인 판단</span></div>
-          <div className="stat"><strong>ERD</strong><span>SPilot 영상 파트 payload 변환</span></div>
+          <div className="stat"><strong>JSON</strong><span>분석 결과 payload 생성</span></div>
         </div>
       </div>
       <ContactSheetPreview />
@@ -266,7 +268,7 @@ function ContactSheetPreview() {
         <div className="verdict">
           <div>
             <strong>판단: 추락 / 전도</strong>
-            <span className="muted">사고 전후 장면 변화로 사고 원인 흐름을 추론</span>
+            <span className="muted">사고 전후 장면 변화로 원인 흐름을 추론</span>
           </div>
           <span className="badge">confidence 0.85</span>
         </div>
@@ -317,10 +319,10 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
       <div className="shell">
         <div className="section-title">
           <div>
-            <h2>영상 입력에서 사고 분석까지 이어지는 화면 구조</h2>
+            <h2>영상 입력부터 사고 분석까지 이어지는 화면 구조</h2>
             <p>사용자가 mp4를 넣으면 백엔드가 루트 <code>video/</code> 폴더에 저장하고, 저장된 영상을 기준으로 사고 유형과 원인 흐름을 분석합니다.</p>
           </div>
-          <p className="muted">Colab 서버의 <code>LLM_API_BASE</code>를 넣으면 Qwen VL 서버로 분석 요청이 전달됩니다. 비워두면 백엔드의 <code>agent/.env</code> 값을 사용합니다.</p>
+          <p className="muted">Colab 서버의 <code>LLM_API_BASE</code>를 넣으면 Qwen VL 서버로 분석 요청을 전달합니다. 비워두면 백엔드의 <code>agent/.env</code> 값을 사용합니다.</p>
         </div>
 
         <div className="workspace">
@@ -383,7 +385,7 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
             {result?.analysis.cause && <div className="cause-box"><span>판단 원인</span><p>{result.analysis.cause}</p></div>}
             {error && <div className="error-box">{error}</div>}
             <div className="code-panel result-json">
-              <div className="code-title">judgement_agent_payload.json preview</div>
+              <div className="code-title">accident_analysis_payload.json preview</div>
               <pre><code>{jsonPreview}</code></pre>
             </div>
           </section>
@@ -395,19 +397,19 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
 
 function Pipeline() {
   const items = [
-    ['mp4 업로드', 'React 프론트에서 선택한 영상을 FastAPI 백엔드로 전송합니다.'],
+    ['mp4 업로드', 'React 프론트엔드에서 선택한 영상을 FastAPI 백엔드로 전송합니다.'],
     ['video 폴더 저장', '백엔드가 루트 video 폴더에 mp4 파일을 저장하고 목록으로 관리합니다.'],
     ['VL 판단', 'Colab Qwen VL 서버가 사고 유형, 부상자 수, 원인을 JSON으로 판단합니다.'],
     ['JSON 검증', 'primary_type, injured_count, cause, details, evidence를 schema 기준으로 확인합니다.'],
-    ['DB payload', 'SPilot ERD의 cctv_events, evidence_photos, tts_alert_logs로 변환합니다.'],
+    ['분석 payload', '사고 결과를 cctv_events, evidence_photos, tts_alert_logs에 맞는 payload로 변환합니다.'],
   ];
 
   return (
     <section id="pipeline" className="shell">
       <div className="section-title">
         <div>
-          <h2>영상 전체를 모델에 던지지 않고, 판단 가능한 장면으로 압축했습니다.</h2>
-          <p>백엔드가 mp4에서 대표 프레임을 뽑고 contact sheet를 만든 뒤, VL 모델이 시간순 변화를 비교합니다.</p>
+          <h2>영상 전체를 그대로 넘기지 않고, 판단 가능한 장면으로 압축했습니다.</h2>
+          <p>백엔드가 mp4에서 주요 프레임을 뽑고 contact sheet를 만든 뒤 VL 모델이 시간순 변화를 비교합니다.</p>
         </div>
         <p className="muted">목표는 단순 이미지 분류가 아니라 사고 유형, 부상자 수, 원인을 JSON으로 구조화하는 것입니다.</p>
       </div>
@@ -424,10 +426,10 @@ function Features() {
   const features = [
     ['Video Upload', 'video 폴더 저장', '프론트엔드에서 업로드한 mp4를 백엔드가 루트 video 폴더에 저장하고 목록으로 관리합니다.'],
     ['Accident Analysis', '사고 유형·부상자·원인 판단', 'VL 모델이 추락, 낙상, 화재, 기타 사고 유형과 부상자 수, 원인 흐름을 JSON으로 생성합니다.'],
-    ['Cause Analysis', '사고 원인 판단 강화', '사고 전 행동, 구조물 변화, 사람의 위치 변화를 시간순으로 비교해 가장 그럴듯한 원인 흐름을 생성합니다.'],
-    ['Colab Server', 'Qwen2.5-VL 32B 추천', 'Colab Pro에서는 Qwen2.5-VL-32B-Instruct를 1순위로 쓰고, VRAM 부족 시 7B로 fallback합니다.'],
-    ['Fallback', 'VL 응답 안정화', '응답이 JSON이 아니거나 반복 토큰으로 깨지는 경우를 감지해 재시도 또는 fallback 판단을 적용합니다.'],
-    ['React + FastAPI', '프론트/백엔드 분리', '업로드 상태, 분석 상태, 결과 payload를 React와 FastAPI API로 연결했습니다.'],
+    ['Cause Analysis', '사고 원인 판단 강화', '사고 전 행동, 구조물 변화, 사람의 위치 변화를 시간순으로 비교해 가능한 원인 흐름을 생성합니다.'],
+    ['Colab Server', 'Qwen2.5-VL 32B 추천', 'Colab Pro에서는 Qwen2.5-VL-32B-Instruct를 1순위로 두고, VRAM 부족 시 7B로 fallback합니다.'],
+    ['Fallback', 'VL 응답 안정화', '응답이 JSON이 아니거나 반복 토큰으로 깨지는 경우를 감지하고 재시도 또는 fallback 판단을 적용합니다.'],
+    ['React + FastAPI', '프론트와 백엔드 분리', '업로드 상태, 분석 상태, 결과 payload를 React와 FastAPI API로 연결했습니다.'],
   ];
 
   return (
@@ -435,7 +437,7 @@ function Features() {
       <div className="section-title">
         <div>
           <h2>구현 포인트</h2>
-          <p>사고 판단 모델을 서비스 DB와 바로 섞지 않고, 업로드, 관찰, 판단, 저장 payload를 분리했습니다.</p>
+          <p>사고 판단 모델을 서비스 DB와 바로 붙이지 않고, 업로드, 관찰, 판단, 저장 payload를 분리했습니다.</p>
         </div>
       </div>
       <div className="grid-3">
@@ -457,7 +459,7 @@ function PromptSection() {
       <div className="section-title">
         <div>
           <h2>프롬프트는 시각 근거 기반 판단에 초점을 맞췄습니다.</h2>
-          <p>이동식 비계 사고에서 낙상과 추락을 혼동하지 않도록, 구조물 상태와 작업자 위치 변화를 시간순으로 보게 했습니다.</p>
+          <p>마지막 장면만 보고 결론을 내리지 않도록, 사고 전 행동과 사고 순간 변화를 연결해 원인을 판단하게 했습니다.</p>
         </div>
       </div>
       <div className="grid-2">
@@ -466,9 +468,9 @@ function PromptSection() {
           <pre><code>{`{
   "primary_type": "낙상|추락|화재|기타",
   "injured_count": 1,
-  "cause": "하부 작업자의 비계 이동/조작 -> 비계 전도 -> 상부 작업자 추락",
+  "cause": "사고 전 행동 -> 구조물 변화 -> 사고 결과",
   "confidence": 0.0,
-  "timeline": [{ "time": "16s", "structure_state": "정상|이동|기울어짐|전도|불확실" }],
+  "timeline": [{ "time": "16s", "observed_change": "구조물 이동 또는 추락 발생" }],
   "details": "[사고 경위] 시간순 원인-결과 흐름"
 }`}</code></pre>
         </div>
@@ -484,21 +486,21 @@ function PromptSection() {
 function SchemaSection() {
   const rows = [
     ['primary_type', '사고 유형을 worker_fall_from_height, worker_slip_and_fall, fire_or_smoke 라벨로 변환'],
-    ['injured_count', 'raw_judgment와 workers 정보를 기준으로 부상자 수 요약'],
+    ['injured_count', 'raw_judgment의 workers 정보를 기준으로 부상자 수 요약'],
     ['cause', '사고 원인 흐름을 분석 요약 및 agent_summary에 반영'],
-    ['contact sheet', 'snapshot_path, evidence_photos.photo_url에 증거 이미지로 연결'],
+    ['contact sheet', 'snapshot_path, evidence_photos.photo_url을 증거 이미지로 연결'],
   ];
 
   return (
     <section id="schema" className="shell">
       <div className="section-title">
         <div>
-          <h2>Qwen 출력은 그대로 저장하지 않고 SPilot ERD payload로 변환합니다.</h2>
-          <p>LLM은 판단 JSON을 만들고, 로컬 mapper가 서비스 테이블에 맞는 안정적인 row 형태로 바꿉니다.</p>
+          <h2>Qwen 출력은 그대로 저장하지 않고 분석 payload로 변환합니다.</h2>
+          <p>LLM은 판단 JSON을 만들고 로컬 mapper가 서비스 테이블에 맞는 안정적인 row 형태로 바꿉니다.</p>
         </div>
       </div>
       <div className="grid-2">
-        <div className="table" role="table" aria-label="Agent 결과와 DB 매핑">
+        <div className="table" role="table" aria-label="Agent 결과와 payload 매핑">
           {rows.map(([key, value]) => <div className="row" key={key}><strong>{key}</strong><span>{value}</span></div>)}
         </div>
         <div className="code-panel">

@@ -1,1 +1,1 @@
-﻿"""FastAPI backend for the SPilot VL portfolio app."""
+﻿"""FastAPI backend for the Construction Accident VL portfolio app."""
