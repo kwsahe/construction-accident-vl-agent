@@ -1,0 +1,394 @@
+[
+  {
+    "case_id": "fall_sample_001",
+    "model_key": "qwen3_vl_32b",
+    "model_name": "Qwen3-VL-32B",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "추락",
+    "accident_type_predicted": "추락",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0009,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "추락",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "고소작업 -> 추락 -> 구조물",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "16.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "고소작업",
+        "추락",
+        "구조물"
+      ],
+      "details": "Qwen3-VL-32B dry-run response for fall_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "고소작업 -> 추락 -> 구조물",
+        "title": "건설현장 추락 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "slip_sample_001",
+    "model_key": "qwen3_vl_32b",
+    "model_name": "Qwen3-VL-32B",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "낙상",
+    "accident_type_predicted": "낙상",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "낙상",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "미끄러짐 -> 넘어짐 -> 바닥",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "8.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "미끄러짐",
+        "넘어짐",
+        "바닥"
+      ],
+      "details": "Qwen3-VL-32B dry-run response for slip_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "미끄러짐 -> 넘어짐 -> 바닥",
+        "title": "건설현장 낙상 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "fall_sample_001",
+    "model_key": "internvl3",
+    "model_name": "InternVL3",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "추락",
+    "accident_type_predicted": "추락",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "추락",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "고소작업 -> 추락 -> 구조물",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "16.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "고소작업",
+        "추락",
+        "구조물"
+      ],
+      "details": "InternVL3 dry-run response for fall_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "고소작업 -> 추락 -> 구조물",
+        "title": "건설현장 추락 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "slip_sample_001",
+    "model_key": "internvl3",
+    "model_name": "InternVL3",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "낙상",
+    "accident_type_predicted": "낙상",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "낙상",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "미끄러짐 -> 넘어짐 -> 바닥",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "8.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "미끄러짐",
+        "넘어짐",
+        "바닥"
+      ],
+      "details": "InternVL3 dry-run response for slip_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "미끄러짐 -> 넘어짐 -> 바닥",
+        "title": "건설현장 낙상 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "fall_sample_001",
+    "model_key": "llava_onevision_2_8b",
+    "model_name": "LLaVA-OneVision-2-8B",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "추락",
+    "accident_type_predicted": "추락",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "추락",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "고소작업 -> 추락 -> 구조물",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "16.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "고소작업",
+        "추락",
+        "구조물"
+      ],
+      "details": "LLaVA-OneVision-2-8B dry-run response for fall_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "고소작업 -> 추락 -> 구조물",
+        "title": "건설현장 추락 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "slip_sample_001",
+    "model_key": "llava_onevision_2_8b",
+    "model_name": "LLaVA-OneVision-2-8B",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "낙상",
+    "accident_type_predicted": "낙상",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "낙상",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "미끄러짐 -> 넘어짐 -> 바닥",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "8.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "미끄러짐",
+        "넘어짐",
+        "바닥"
+      ],
+      "details": "LLaVA-OneVision-2-8B dry-run response for slip_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "미끄러짐 -> 넘어짐 -> 바닥",
+        "title": "건설현장 낙상 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "fall_sample_001",
+    "model_key": "minicpm_v_4_5",
+    "model_name": "MiniCPM-V 4.5",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "추락",
+    "accident_type_predicted": "추락",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "추락",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "고소작업 -> 추락 -> 구조물",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "16.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "고소작업",
+        "추락",
+        "구조물"
+      ],
+      "details": "MiniCPM-V 4.5 dry-run response for fall_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "고소작업 -> 추락 -> 구조물",
+        "title": "건설현장 추락 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  },
+  {
+    "case_id": "slip_sample_001",
+    "model_key": "minicpm_v_4_5",
+    "model_name": "MiniCPM-V 4.5",
+    "prompt_version": "cause_focused",
+    "accident_type_expected": "낙상",
+    "accident_type_predicted": "낙상",
+    "injured_count_expected": 1,
+    "injured_count_predicted": 1,
+    "cause_keyword_recall": 1.0,
+    "json_valid": true,
+    "latency": 0.0,
+    "total_score": 1.0,
+    "normalized_response": {
+      "primary_type": "낙상",
+      "secondary_type": "기타",
+      "injured_count": 1,
+      "confidence": 0.82,
+      "cause": "미끄러짐 -> 넘어짐 -> 바닥",
+      "cause_confidence": 0.78,
+      "timeline": [
+        {
+          "time": "8.0s",
+          "description": "dry-run 사고 변화 감지"
+        }
+      ],
+      "workers": [],
+      "evidence": [
+        "미끄러짐",
+        "넘어짐",
+        "바닥"
+      ],
+      "details": "MiniCPM-V 4.5 dry-run response for slip_sample_001",
+      "report_draft": {
+        "overview": "dry-run report draft",
+        "cause_analysis": "미끄러짐 -> 넘어짐 -> 바닥",
+        "title": "건설현장 낙상 사고 분석 보고서 초안",
+        "damage_summary": "부상자 1명 추정"
+      },
+      "prevention_actions": [
+        {
+          "priority": "medium",
+          "action": "현장 원본 영상 재검토",
+          "reason": "dry-run"
+        }
+      ],
+      "uncertain_points": []
+    }
+  }
+]

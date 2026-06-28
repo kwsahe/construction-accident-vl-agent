@@ -15,7 +15,7 @@ from typing import Any
 
 AGENT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = AGENT_DIR.parent
-DEFAULT_MODELS_DIR = BACKEND_DIR / "model"
+DEFAULT_MODELS_DIR = AGENT_DIR / "models"
 DEFAULT_PT_OUTPUT = AGENT_DIR / "output" / "pt_detection_result.json"
 
 
@@ -48,7 +48,7 @@ def prepare_pt_input(
         return result
 
     pt_path = Path(model_path)
-    if not pt_path.exists():
+    if not pt_path.exists() and not run_inference:
         result = PtDetectionResult(
             status="missing",
             model_path=str(pt_path),
@@ -94,7 +94,8 @@ def _run_yolo(model_path: Path, video_path: Path) -> PtDetectionResult:
             message="ultralytics가 설치되어 있지 않아 PT 추론을 실행할 수 없습니다.",
         )
 
-    model = YOLO(str(model_path))
+    model_source = str(model_path) if model_path.exists() else model_path.name
+    model = YOLO(model_source)
     detections: list[dict[str, Any]] = []
     labels: list[str] = []
     max_confidence = 0.0

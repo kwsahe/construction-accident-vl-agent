@@ -1,0 +1,5 @@
+name,prompt,total,typeAccuracy,injuredCountAccuracy,causeRecall,jsonValid,latency
+Qwen3-VL-32B,cause_focused,1.0,1.0,1.0,1.0,1.0,0.0004
+InternVL3,cause_focused,1.0,1.0,1.0,1.0,1.0,0.0
+LLaVA-OneVision-2-8B,cause_focused,1.0,1.0,1.0,1.0,1.0,0.0
+MiniCPM-V 4.5,cause_focused,1.0,1.0,1.0,1.0,1.0,0.0

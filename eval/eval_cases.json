@@ -1,0 +1,28 @@
+[
+  {
+    "case_id": "fall_sample_001",
+    "video_path": "video/eval/fall_sample_001.mp4",
+    "youtube_url": "",
+    "scene_context": "건설현장 고소작업 중 사고 후보 영상입니다.",
+    "expected": {
+      "accident_detected": true,
+      "accident_type": "추락",
+      "injured_count": 1,
+      "cause_keywords": ["고소작업", "추락", "구조물"],
+      "accident_time_sec": 16.0
+    }
+  },
+  {
+    "case_id": "slip_sample_001",
+    "video_path": "video/eval/slip_sample_001.mp4",
+    "youtube_url": "",
+    "scene_context": "동일 평면에서 작업자가 넘어지는 사고 후보 영상입니다.",
+    "expected": {
+      "accident_detected": true,
+      "accident_type": "낙상",
+      "injured_count": 1,
+      "cause_keywords": ["미끄러짐", "넘어짐", "바닥"],
+      "accident_time_sec": 8.0
+    }
+  }
+]

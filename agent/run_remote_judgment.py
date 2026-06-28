@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict
@@ -327,6 +328,7 @@ def main() -> int:
     parser.add_argument("--risk-overlay-points", default=os.environ.get("AGENT_RISK_OVERLAY_POINTS", DEFAULT_RISK_OVERLAY_POINTS), help="Normalized polygon points: x,y;x,y;...")
     parser.add_argument("--max-long-side", type=int, default=640)
     parser.add_argument("--max-tokens", type=int, default=1000)
+    parser.add_argument("--request-timeout", type=int, default=int(os.environ.get("LLM_REQUEST_TIMEOUT", "900")), help="Seconds to wait for one Colab VL request")
     parser.add_argument("--camera-id", default="Camera 15")
     parser.add_argument("--zone-id", default="construction_site")
     parser.add_argument("--zone-name", default="건설현장 사고 구역")
@@ -334,7 +336,7 @@ def main() -> int:
     parser.add_argument("--scene-context", default=os.environ.get("AGENT_SCENE_CONTEXT", _load_scene_context()))
     args = parser.parse_args()
 
-    api_base = args.api_base.rstrip("/")
+    api_base = _normalize_api_base(args.api_base)
     if not api_base:
         print("LLM_API_BASE is missing. Set agent/.env or pass --api-base.")
         return 2
@@ -373,7 +375,21 @@ def main() -> int:
         build_contact_sheet(video_path, overview_path, overview_seconds, crop, args.max_long_side, risk_overlay_points)
         print(f"overview sheet saved: {overview_path}")
 
-        moment_detection = call_qwen_moment(api_base, overview_path, args.max_tokens, asdict(pt_result), args.scene_context)
+        try:
+            moment_detection = call_qwen_moment(api_base, overview_path, args.max_tokens, asdict(pt_result), args.scene_context, args.request_timeout)
+        except RuntimeError as exc:
+            print(f"[moment] failed, fallback to target seconds: {exc}")
+            moment_detection = {
+                "accident_detected": False,
+                "accident_time_sec": None,
+                "accident_start_sec": None,
+                "accident_end_sec": None,
+                "confidence": 0.0,
+                "event_summary": f"moment detection failed: {exc}",
+                "evidence": [],
+            }
+            print("[moment] waiting 15s before final judgment to let Colab recover...")
+            time.sleep(15)
         moment_path = Path(args.moment_output)
         moment_path.parent.mkdir(parents=True, exist_ok=True)
         moment_path.write_text(
@@ -398,7 +414,7 @@ def main() -> int:
     print(f"contact sheet saved: {sheet_path}")
 
     print("[judgment] running full VL chat judgment for accident type, injured count, and cause...")
-    raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context)
+    raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context, args.request_timeout)
     raw_judgment = _sanitize_accident_judgment(raw_judgment)
     if moment_detection:
         raw_judgment["moment_detection"] = moment_detection
@@ -470,6 +486,19 @@ def _load_scene_context() -> str:
         if value:
             return value
     return DEFAULT_SCENE_CONTEXT
+
+
+def _normalize_api_base(value: str) -> str:
+    api_base = value.strip().rstrip("/")
+    if not api_base:
+        return ""
+    if api_base.endswith("/v1"):
+        return api_base
+    if api_base.endswith("/v1/chat/completions"):
+        return api_base[: -len("/chat/completions")]
+    if api_base.endswith("/chat/completions"):
+        return api_base[: -len("/chat/completions")] + "/v1"
+    return api_base + "/v1"
 
 
 def _overview_seconds(duration_sec: float, interval_sec: float) -> list[float]:
@@ -649,6 +678,7 @@ def call_qwen_chat(
     pt_status: dict[str, Any] | None = None,
     moment_detection: dict[str, Any] | None = None,
     scene_context: str = "",
+    request_timeout: int = 900,
 ) -> dict[str, Any]:
     encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     prompt = f"{PROMPT}\n\n{EXTRA_CAUSE_PROMPT}"
@@ -689,14 +719,14 @@ def call_qwen_chat(
             return True
         return False
 
-    data = _post_chat_completion(api_base, payload)
+    data = _post_chat_completion(api_base, payload, request_timeout)
     raw_text = data["choices"][0]["message"]["content"]
 
     if _is_garbage_chat(raw_text):
         print("[chat] garbage detected, retrying with temperature=0.4...")
         payload["temperature"] = 0.4
         payload["max_tokens"] = min(payload.get("max_tokens", 600), 300)
-        data = _post_chat_completion(api_base, payload)
+        data = _post_chat_completion(api_base, payload, request_timeout)
         raw_text = data["choices"][0]["message"]["content"]
 
     match = re.search(r"\{.*\}", raw_text, re.S)
@@ -725,6 +755,7 @@ def call_qwen_moment(
     max_tokens: int,
     pt_status: dict[str, Any] | None = None,
     scene_context: str = "",
+    request_timeout: int = 900,
 ) -> dict[str, Any]:
     encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     prompt = MOMENT_PROMPT
@@ -763,7 +794,7 @@ def call_qwen_moment(
             return True
         return False
 
-    data = _post_chat_completion(api_base, _make_payload(0.05))
+    data = _post_chat_completion(api_base, _make_payload(0.05), request_timeout)
     raw_text = data["choices"][0]["message"]["content"]
 
     if _is_garbage(raw_text):
@@ -784,32 +815,55 @@ def call_qwen_moment(
     return _normalize_moment_detection(parsed)
 
 
-def _post_chat_completion(api_base: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _post_chat_completion(api_base: str, payload: dict[str, Any], request_timeout: int = 900) -> dict[str, Any]:
     api_key = os.environ.get("LLM_API_KEY", "").strip() or "dummy"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        f"{api_base}/chat/completions",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "ngrok-skip-browser-warning": "true",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        raise RuntimeError(
-            "Qwen chat request failed. Check that the Colab server is running, "
-            f"ngrok URL is current, and api_base ends with /v1. URL: {api_base}/chat/completions. "
-            f"Original error: {exc}"
-        ) from exc
+    retries = int(os.environ.get("LLM_REQUEST_RETRIES", "3"))
+    retry_delay = float(os.environ.get("LLM_RETRY_DELAY", "20"))
+    retryable_status = {429, 500, 502, 503, 504}
+    last_error: Exception | None = None
+
+    for attempt in range(1, retries + 1):
+        request = urllib.request.Request(
+            f"{api_base}/chat/completions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "ngrok-skip-browser-warning": "true",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in retryable_status or attempt >= retries:
+                raise _chat_request_error(api_base, request_timeout, exc) from exc
+            print(f"[llm] HTTP {exc.code}; retrying {attempt}/{retries} after {retry_delay:g}s...")
+            time.sleep(retry_delay)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = exc
+            if attempt >= retries:
+                raise _chat_request_error(api_base, request_timeout, exc) from exc
+            print(f"[llm] request failed; retrying {attempt}/{retries} after {retry_delay:g}s: {exc}")
+            time.sleep(retry_delay)
+    else:
+        raise _chat_request_error(api_base, request_timeout, last_error or RuntimeError("unknown LLM request error"))
 
     if "choices" not in data:
         raise RuntimeError(f"Qwen returned non-completion response: {json.dumps(data, ensure_ascii=False)}")
     return data
+
+
+def _chat_request_error(api_base: str, request_timeout: int, exc: Exception) -> RuntimeError:
+    return RuntimeError(
+        "Qwen chat request failed. Check that the Colab server is running, "
+        f"ngrok URL is current, and api_base ends with /v1. Timeout={request_timeout}s. URL: {api_base}/chat/completions. "
+        f"Original error: {exc}"
+    )
 
 
 def _normalize_moment_detection(raw: dict[str, Any]) -> dict[str, Any]:

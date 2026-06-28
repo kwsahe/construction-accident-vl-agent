@@ -10,10 +10,11 @@ Pillow>=10.2,<12
 python-multipart>=0.0.9,<1
 uvicorn[standard]>=0.30,<1
 fastapi>=0.115,<1
+yt-dlp>=2026.6.9
 
 # Optional: enable `--pt-model ... --run-pt` YOLO inference.
 # This can install heavier ML dependencies, so uncomment only when needed.
-# ultralytics>=8.3,<9
+# ultralytics>=8.3,<27
 
 # Optional: enable direct Django ORM writes with `--insert-db`.
 # Not required when only generating JSON payloads or using `--api-url`.

@@ -1,0 +1,278 @@
+Construction Accident VL Agent 실행 방법
+========================================
+
+기준 경로
+---------
+C:\Users\sangh\Desktop\Code\VL
+
+
+1. Conda 가상환경 생성
+----------------------
+Python 3.11 환경을 권장합니다.
+
+PowerShell 또는 Anaconda Prompt에서 실행:
+
+  cd C:\Users\sangh\Desktop\Code\VL
+  conda create -n construction-vl python=3.11 -y
+  conda activate construction-vl
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+
+
+2. 프론트엔드 패키지 설치
+------------------------
+Node.js가 설치되어 있어야 합니다.
+
+  cd C:\Users\sangh\Desktop\Code\VL
+  npm install
+
+
+3. Colab VL 서버 실행
+---------------------
+server 폴더 안의 노트북 중 하나를 Colab에 업로드해서 실행합니다.
+
+권장 순서:
+
+  1) server/Qwen3_VL_32B_colab_server.ipynb
+     - 메인 추천 모델
+     - 사고 원인 분석, 보고서 초안 생성, 긴 영상 reasoning 비교용
+
+  2) server/InternVL3_colab_server.ipynb
+     - Qwen3-VL과 perception/reasoning 성능 비교용
+
+  3) server/LLaVA_OneVision_2_8B_colab_server.ipynb
+     - 8B급 video baseline
+     - 속도/성능 균형 비교용
+
+  4) server/MiniCPM_V_4_5_colab_server.ipynb
+     - 경량/효율형 video understanding 후보
+     - 빠른 fallback 실험용
+
+  5) server/Judgement_Agent_qwen25_vl_32b_colab_server.ipynb
+     - 기존 Qwen2.5-VL 32B baseline
+
+Colab에서 노트북을 모두 실행하면 아래 형태의 주소가 출력됩니다.
+
+  LLM_API_BASE=https://xxxxx.ngrok-free.app/v1
+
+이 주소를 프론트엔드의 "Colab API Base" 입력칸에 넣거나,
+agent/.env 파일에 저장해서 사용할 수 있습니다.
+
+
+4. agent/.env 설정
+------------------
+agent/.env.example을 참고해서 agent/.env를 만듭니다.
+
+예시:
+
+  LLM_PROVIDER=remote_openai
+  LLM_MODEL=Qwen/Qwen3-VL-32B-Instruct
+  LLM_API_BASE=https://xxxxx.ngrok-free.app/v1
+  LLM_API_KEY=dummy
+
+프론트엔드에서 Colab API Base를 입력하면 해당 값이 우선 사용됩니다.
+입력하지 않으면 백엔드가 agent/.env 값을 사용합니다.
+
+
+5. 백엔드 실행
+--------------
+새 PowerShell 또는 Anaconda Prompt를 열고 실행합니다.
+
+  cd C:\Users\sangh\Desktop\Code\VL
+  conda activate construction-vl
+  uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+
+정상 실행 확인:
+
+  http://127.0.0.1:8000/api/health
+
+정상 응답:
+
+  {"status":"ok"}
+
+
+6. 프론트엔드 실행
+------------------
+새 PowerShell을 하나 더 열고 실행합니다.
+
+  cd C:\Users\sangh\Desktop\Code\VL
+  npm run dev
+
+브라우저에서 접속:
+
+  http://127.0.0.1:5173
+
+
+7. 기본 분석 흐름
+-----------------
+1) Colab에서 VL 서버를 실행합니다.
+2) 백엔드를 실행합니다.
+3) 프론트엔드를 실행합니다.
+4) 프론트엔드에서 mp4 영상을 업로드합니다.
+5) 필요하면 Colab API Base에 ngrok 주소를 입력합니다.
+6) "mp4 저장 및 사고 분석 시작" 버튼을 누릅니다.
+7) 분석 결과에서 아래 항목을 확인합니다.
+
+  - 사고 유형
+  - 부상자 수
+  - 신뢰도
+  - 판단 원인
+  - accident_analysis_payload.json preview
+  - Report Draft Dashboard
+  - Evaluation Dashboard
+
+
+8. 출력 파일
+------------
+분석 실행 후 agent/output 폴더에 결과가 생성됩니다.
+
+  agent/output/accident_overview_sheet.jpg
+  agent/output/accident_moment_detection.json
+  agent/output/accident_moment_sheet.jpg
+  agent/output/accident_judgment_result.json
+  agent/output/accident_analysis_payload.json
+  agent/output/pt_detection_result.json
+
+video 폴더에는 업로드한 원본 영상이 저장됩니다.
+
+  video/
+
+video 폴더와 agent/output 폴더는 실행 산출물이므로 Git에 올리지 않는 것을 권장합니다.
+
+
+9. 모델 비교 실험 계획
+----------------------
+앞으로 사고 영상 테스트셋을 만든 뒤, 모델과 프롬프트별 점수를 산출합니다.
+
+비교 후보:
+
+  - Qwen3-VL-32B
+  - InternVL3
+  - LLaVA-OneVision-2-8B
+  - MiniCPM-V 4.5
+  - Qwen2.5-VL-32B
+
+평가 지표:
+
+  - Accident Detection Accuracy
+  - Accident Type Accuracy
+  - Injured Count Accuracy
+  - Cause Keyword Recall
+  - JSON Valid Rate
+  - Report Completeness
+  - Average Latency
+
+평가 산출물 예시:
+
+  eval/output/model_score_bar.png
+  eval/output/confusion_matrix.png
+  eval/output/cause_recall_by_prompt.png
+  eval/output/json_valid_rate.png
+  eval/output/latency_boxplot.png
+  eval/output/eval_summary.csv
+  eval/output/eval_summary.json
+
+프론트엔드 Evaluation Dashboard는 이후 eval_summary.json과 chart 이미지를 받아 실제 점수로 표시하도록 확장합니다.
+
+
+10. YouTube URL 분석 예정
+-------------------------
+다음 단계에서는 mp4 업로드 외에 YouTube URL 입력을 추가할 예정입니다.
+
+예정 흐름:
+
+  YouTube URL 입력
+  -> backend /api/videos/youtube
+  -> yt-dlp로 video 폴더에 mp4 저장
+  -> 기존 VL 분석 파이프라인 실행
+
+주의:
+
+  - 사용자가 분석 권한을 가진 영상만 입력해야 합니다.
+  - 다운로드한 영상은 Git에 올리지 않습니다.
+  - 연구/포트폴리오 목적의 분석 입력 방식으로만 사용합니다.
+
+
+11. 자주 발생하는 문제
+----------------------
+문제: py -3.11 -m venv .venv 실행 시 Python 3.11을 찾지 못함
+해결: Anaconda 환경을 사용합니다.
+
+  conda create -n construction-vl python=3.11 -y
+  conda activate construction-vl
+
+문제: Colab ngrok 주소가 바뀜
+해결: Colab을 다시 실행하면 새 LLM_API_BASE가 출력됩니다. 프론트 입력칸 또는 agent/.env를 새 주소로 바꿉니다.
+
+문제: Qwen3-VL-32B가 Colab에서 OOM 발생
+해결: 더 작은 모델 노트북을 사용합니다.
+
+  - LLaVA_OneVision_2_8B_colab_server.ipynb
+  - MiniCPM_V_4_5_colab_server.ipynb
+  - 기존 Qwen2.5-VL 32B 또는 7B fallback
+
+문제: 프론트엔드에서 백엔드 연결 실패
+확인:
+
+  - 백엔드가 127.0.0.1:8000에서 실행 중인지 확인
+  - 프론트엔드가 127.0.0.1:5173에서 실행 중인지 확인
+  - 브라우저에서 http://127.0.0.1:8000/api/health 접속 확인
+
+
+12. 개발용 빌드 확인
+--------------------
+프론트엔드 타입 체크와 빌드 확인:
+
+  npm run build
+
+Python 파일 문법 확인:
+
+  python -m py_compile backend\main.py agent\run_remote_judgment.py agent\save_judgment.py agent\schemas.py
+
+
+13. YOLO pretrained 모델 사용 방법
+----------------------------------
+사고 영상 데이터가 부족하므로 현재 프로젝트에서는 YOLO를 직접 학습하지 않습니다.
+대신 Ultralytics 최신 pretrained 모델을 보조 evidence 생성기로 사용합니다.
+
+2026년 기준 Ultralytics 공식 문서의 최신 계열은 YOLO26입니다.
+YOLO26 pretrained 모델은 첫 사용 시 Ultralytics가 자동 다운로드합니다.
+
+설치:
+
+  conda activate construction-vl
+  pip install ultralytics
+
+권장 저장 위치:
+
+  C:\Users\sangh\Desktop\Code\VL\agent\models
+
+권장 모델명:
+
+  yolo26n.pt  - 가장 가벼운 detection 모델
+  yolo26s.pt  - 정확도와 속도 균형
+  yolo26n-pose.pt - pose estimation 실험용
+
+자동 다운로드 예시:
+
+  cd C:\Users\sangh\Desktop\Code\VL\agent\models
+  python -c "from ultralytics import YOLO; YOLO('yolo26n.pt')"
+
+프론트엔드 사용:
+
+  1) Analyze 화면에서 "pretrained YOLO evidence 사용" 체크
+  2) YOLO 모델 파일에 yolo26n.pt 입력
+  3) Colab API Base와 VL 모델 선택
+  4) 영상 저장 및 사고 분석 시작
+
+YOLO 역할:
+
+  - 사고를 최종 판단하지 않습니다.
+  - 사람 bbox, 객체 위치 변화, frame별 detection을 보조 근거로 생성합니다.
+  - 최종 사고 유형과 원인 판단은 VL 모델이 수행합니다.
+
+참고:
+
+  - agent/models 폴더는 Git에 올리지 않습니다.
+  - custom 학습한 best.pt가 있다면 agent/models/best.pt에 넣고 프론트의 YOLO 모델 파일에 best.pt를 입력하면 됩니다.
+  - 공식 문서: https://docs.ultralytics.com/models/yolo26

@@ -1,0 +1,53 @@
+{
+  "updated_at": "2026-06-28T16:14:16",
+  "dataset": "accident_eval_cases",
+  "best_model": "Qwen3-VL-32B",
+  "scores": [
+    {
+      "name": "Qwen3-VL-32B",
+      "prompt": "cause_focused",
+      "total": 1.0,
+      "typeAccuracy": 1.0,
+      "injuredCountAccuracy": 1.0,
+      "causeRecall": 1.0,
+      "jsonValid": 1.0,
+      "latency": 0.0004
+    },
+    {
+      "name": "InternVL3",
+      "prompt": "cause_focused",
+      "total": 1.0,
+      "typeAccuracy": 1.0,
+      "injuredCountAccuracy": 1.0,
+      "causeRecall": 1.0,
+      "jsonValid": 1.0,
+      "latency": 0.0
+    },
+    {
+      "name": "LLaVA-OneVision-2-8B",
+      "prompt": "cause_focused",
+      "total": 1.0,
+      "typeAccuracy": 1.0,
+      "injuredCountAccuracy": 1.0,
+      "causeRecall": 1.0,
+      "jsonValid": 1.0,
+      "latency": 0.0
+    },
+    {
+      "name": "MiniCPM-V 4.5",
+      "prompt": "cause_focused",
+      "total": 1.0,
+      "typeAccuracy": 1.0,
+      "injuredCountAccuracy": 1.0,
+      "causeRecall": 1.0,
+      "jsonValid": 1.0,
+      "latency": 0.0
+    }
+  ],
+  "charts": [
+    "eval/output/model_score_bar.png",
+    "eval/output/confusion_matrix.png",
+    "eval/output/cause_recall_by_prompt.png",
+    "eval/output/latency_boxplot.png"
+  ]
+}

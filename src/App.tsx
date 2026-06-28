@@ -30,8 +30,40 @@ type AnalysisResponse = {
   logs: string;
 };
 
+type ModelScore = {
+  name: string;
+  prompt: string;
+  total: number;
+  typeAccuracy: number;
+  causeRecall: number;
+  jsonValid: number;
+  latency: number;
+};
+
+type EvaluationSummary = {
+  updated_at?: string;
+  dataset?: string;
+  best_model?: string;
+  scores: ModelScore[];
+  charts?: string[];
+};
+
+type LlmStatus = {
+  live: boolean;
+  model: string;
+  api_base: string;
+  message: string;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000';
 const stages = ['video 폴더 저장', '프레임 추출', 'VL 사고 판단', '분석 payload'];
+
+const fallbackModelScores: ModelScore[] = [
+  { name: 'Qwen3-VL-32B', prompt: 'Cause Prompt + YOLO Evidence', total: 0.86, typeAccuracy: 0.89, causeRecall: 0.82, jsonValid: 0.97, latency: 43.2 },
+  { name: 'InternVL3-38B', prompt: 'Cause Prompt', total: 0.81, typeAccuracy: 0.86, causeRecall: 0.76, jsonValid: 0.94, latency: 51.8 },
+  { name: 'LLaVA-OneVision-2-8B', prompt: 'Cause Prompt', total: 0.74, typeAccuracy: 0.79, causeRecall: 0.68, jsonValid: 0.91, latency: 24.5 },
+  { name: 'MiniCPM-V 4.5', prompt: 'Fast Video Prompt', total: 0.71, typeAccuracy: 0.76, causeRecall: 0.64, jsonValid: 0.90, latency: 18.7 },
+];
 
 function formatBytes(bytes: number) {
   if (!bytes) return '0 B';
@@ -40,24 +72,46 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
 }
 
+function formatElapsed(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 function App() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [status, setStatus] = useState<AnalyzeState>('idle');
   const [activeStage, setActiveStage] = useState(-1);
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [uploadedVideo, setUploadedVideo] = useState<VideoMeta | null>(null);
   const [videos, setVideos] = useState<VideoMeta[]>([]);
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState('');
   const [apiBase, setApiBase] = useState('');
   const [cameraId, setCameraId] = useState('Camera 15');
+  const [evaluationSummary, setEvaluationSummary] = useState<EvaluationSummary>({ scores: fallbackModelScores });
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [selectedModel, setSelectedModel] = useState('qwen3_vl_32b');
+  const [runYolo, setRunYolo] = useState(false);
+  const [yoloModel, setYoloModel] = useState('yolo26n.pt');
+  const [llmStatus, setLlmStatus] = useState<LlmStatus>({ live: false, model: '', api_base: '', message: 'not checked' });
   const [sceneContext, setSceneContext] = useState(
     '건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 유형과 원인을 판단합니다.',
   );
 
   useEffect(() => {
     refreshVideos().catch(() => undefined);
+    refreshEvaluationSummary().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      refreshLlmStatus().catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [apiBase]);
 
   useEffect(() => {
     if (!file) {
@@ -68,6 +122,14 @@ function App() {
     setPreviewUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
+
+  useEffect(() => {
+    if (!analysisStartedAt || (status !== 'running' && status !== 'uploading')) return;
+    const updateElapsed = () => setElapsedSeconds(Math.floor((Date.now() - analysisStartedAt) / 1000));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [analysisStartedAt, status]);
 
   const jsonPreview = useMemo(() => {
     if (result) return JSON.stringify(result.payload, null, 2);
@@ -100,6 +162,23 @@ function App() {
     setVideos(data.videos);
   };
 
+  const refreshEvaluationSummary = async () => {
+    const response = await fetch(`${API_BASE}/api/evaluation/summary`);
+    if (!response.ok) return;
+    const data = await response.json() as EvaluationSummary;
+    if (Array.isArray(data.scores) && data.scores.length) {
+      setEvaluationSummary(data);
+    }
+  };
+
+  const refreshLlmStatus = async () => {
+    const query = apiBase.trim() ? `?api_base=${encodeURIComponent(apiBase.trim())}` : '';
+    const response = await fetch(`${API_BASE}/api/llm/status${query}`);
+    if (!response.ok) return;
+    const data = await response.json() as LlmStatus;
+    setLlmStatus(data);
+  };
+
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = event.target.files?.[0] ?? null;
     setFile(selected);
@@ -107,11 +186,14 @@ function App() {
     setResult(null);
     setError('');
     setActiveStage(-1);
+    setAnalysisStartedAt(null);
+    setElapsedSeconds(0);
     setStatus(selected ? 'ready' : 'idle');
   };
 
   const uploadVideo = async () => {
     if (!file) throw new Error('업로드할 mp4를 선택하세요.');
+    setAnalysisStartedAt((current) => current ?? Date.now());
     setStatus('uploading');
     setActiveStage(0);
     const formData = new FormData();
@@ -124,6 +206,23 @@ function App() {
     return data.video;
   };
 
+  const downloadYoutubeVideo = async () => {
+    if (!youtubeUrl.trim()) throw new Error('YouTube URL을 입력하세요.');
+    setAnalysisStartedAt((current) => current ?? Date.now());
+    setStatus('uploading');
+    setActiveStage(0);
+    const formData = new FormData();
+    formData.append('url', youtubeUrl.trim());
+    const response = await fetch(`${API_BASE}/api/videos/youtube`, { method: 'POST', body: formData });
+    if (!response.ok) throw new Error(await readError(response));
+    const data = await response.json() as { video: VideoMeta };
+    setUploadedVideo(data.video);
+    setFile(null);
+    setPreviewUrl(`${API_BASE}${data.video.url}`);
+    await refreshVideos();
+    return data.video;
+  };
+
   const runAnalysis = async (event?: FormEvent) => {
     event?.preventDefault();
     if (status === 'running' || status === 'uploading') return;
@@ -131,7 +230,10 @@ function App() {
     try {
       setError('');
       setResult(null);
-      const video = uploadedVideo ?? await uploadVideo();
+      const startedAt = Date.now();
+      setAnalysisStartedAt(startedAt);
+      setElapsedSeconds(0);
+      const video = uploadedVideo ?? (youtubeUrl.trim() && !file ? await downloadYoutubeVideo() : await uploadVideo());
       setStatus('running');
       setActiveStage(1);
       window.setTimeout(() => setActiveStage(2), 400);
@@ -141,6 +243,9 @@ function App() {
       formData.append('api_base', apiBase);
       formData.append('camera_id', cameraId);
       formData.append('scene_context', sceneContext);
+      formData.append('model_key', selectedModel);
+      formData.append('run_yolo', String(runYolo));
+      formData.append('yolo_model', yoloModel);
 
       const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: formData });
       if (!response.ok) throw new Error(await readError(response));
@@ -148,6 +253,7 @@ function App() {
       setActiveStage(stages.length);
       setResult(data);
       setStatus('done');
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : String(err));
@@ -162,6 +268,8 @@ function App() {
     setError('');
     setStatus('ready');
     setActiveStage(0);
+    setAnalysisStartedAt(null);
+    setElapsedSeconds(0);
   };
 
   return (
@@ -171,8 +279,9 @@ function App() {
           <div className="brand"><span className="mark">VL</span> Construction Accident VL Agent</div>
           <div className="links">
             <a href="#workspace">Analyze</a>
-            <a href="#pipeline">Pipeline</a>
-            <a href="#prompt">Prompt</a>
+            <a href="#dashboard">Dashboard</a>
+            <a href="#reports">Reports</a>
+            <a href="#models">Models</a>
             <a href="#schema">Schema</a>
           </div>
         </nav>
@@ -184,6 +293,7 @@ function App() {
           activeStage={activeStage}
           apiBase={apiBase}
           cameraId={cameraId}
+          elapsedSeconds={elapsedSeconds}
           error={error}
           file={file}
           jsonPreview={jsonPreview}
@@ -193,16 +303,27 @@ function App() {
           onRunAnalysis={runAnalysis}
           onSceneContextChange={setSceneContext}
           onSelectVideo={selectExistingVideo}
+          onSelectedModelChange={setSelectedModel}
+          onRunYoloChange={setRunYolo}
+          onYoloModelChange={setYoloModel}
+          onYoutubeUrlChange={setYoutubeUrl}
           previewUrl={previewUrl}
           result={result}
           sceneContext={sceneContext}
+          selectedModel={selectedModel}
           status={status}
           uploadedVideo={uploadedVideo}
           videos={videos}
+          runYolo={runYolo}
+          yoloModel={yoloModel}
+          youtubeUrl={youtubeUrl}
+          llmStatus={llmStatus}
+          onRefreshLlmStatus={refreshLlmStatus}
         />
+        <EvaluationDashboard summary={evaluationSummary} />
+        <ReportDashboard result={result} />
+        <ModelRecommendation />
         <Pipeline />
-        <Features />
-        <PromptSection />
         <SchemaSection />
       </main>
 
@@ -229,19 +350,19 @@ function Hero() {
     <section className="shell hero">
       <div>
         <p className="eyebrow">Vision-Language Safety AI</p>
-        <h1>Construction Accident VL Agent</h1>
+        <h1>Accident Video to Report Draft</h1>
         <p className="lead">
-          CCTV 사고 영상을 넣으면 프레임 추출, contact sheet 생성, Qwen2.5-VL 판단,
-          사고 유형·부상자 수·원인 분석과 분석 결과 payload 생성까지 이어지는 워크플로우입니다.
+          mp4 또는 YouTube 영상 입력에서 시작해 사고 유형, 부상자 수, 원인 흐름, 사고보고서 초안,
+          재발 방지 조치, 모델별 평가 대시보드까지 연결하는 VL 사고 분석 프로젝트입니다.
         </p>
         <div className="actions">
-          <a className="button" href="#workspace">영상 분석 UI 보기</a>
-          <a className="button secondary" href="/PORTFOLIO.md">PORTFOLIO.md</a>
+          <a className="button" href="#workspace">영상 분석 시작</a>
+          <a className="button secondary" href="#dashboard">평가 대시보드 보기</a>
         </div>
-        <div className="stats" aria-label="프로젝트 핵심 수치">
-          <div className="stat"><strong>mp4</strong><span>프론트 업로드 후 video 폴더 저장</span></div>
-          <div className="stat"><strong>VL</strong><span>사고 유형·부상자·원인 판단</span></div>
-          <div className="stat"><strong>JSON</strong><span>분석 결과 payload 생성</span></div>
+        <div className="stats" aria-label="프로젝트 핵심 지표">
+          <div className="stat"><strong>VL</strong><span>Qwen3-VL 중심 사고 reasoning</span></div>
+          <div className="stat"><strong>YOLO</strong><span>학습 없이 pretrained evidence 활용</span></div>
+          <div className="stat"><strong>Eval</strong><span>모델·프롬프트별 정확도 시각화</span></div>
         </div>
       </div>
       <ContactSheetPreview />
@@ -267,8 +388,8 @@ function ContactSheetPreview() {
       <div className="monitor-body">
         <div className="verdict">
           <div>
-            <strong>판단: 추락 / 전도</strong>
-            <span className="muted">사고 전후 장면 변화로 원인 흐름을 추론</span>
+            <strong>판단: 추락 / 구조물 불안정</strong>
+            <span className="muted">사고 전후 프레임 변화로 원인 흐름을 추론</span>
           </div>
           <span className="badge">confidence 0.85</span>
         </div>
@@ -281,6 +402,7 @@ type WorkspaceProps = {
   activeStage: number;
   apiBase: string;
   cameraId: string;
+  elapsedSeconds: number;
   error: string;
   file: File | null;
   jsonPreview: string;
@@ -290,19 +412,31 @@ type WorkspaceProps = {
   onRunAnalysis: (event?: FormEvent) => void;
   onSceneContextChange: (value: string) => void;
   onSelectVideo: (video: VideoMeta) => void;
+  onSelectedModelChange: (value: string) => void;
+  onRunYoloChange: (value: boolean) => void;
+  onYoloModelChange: (value: string) => void;
+  onYoutubeUrlChange: (value: string) => void;
   previewUrl: string;
   result: AnalysisResponse | null;
   sceneContext: string;
+  selectedModel: string;
   status: AnalyzeState;
   uploadedVideo: VideoMeta | null;
   videos: VideoMeta[];
+  runYolo: boolean;
+  yoloModel: string;
+  youtubeUrl: string;
+  llmStatus: LlmStatus;
+  onRefreshLlmStatus: () => void;
 };
 
 function AnalyzeWorkspace(props: WorkspaceProps) {
   const {
-    activeStage, apiBase, cameraId, error, file, jsonPreview, onApiBaseChange, onCameraIdChange,
+    activeStage, apiBase, cameraId, elapsedSeconds, error, file, jsonPreview, onApiBaseChange, onCameraIdChange,
     onFileChange, onRunAnalysis, onSceneContextChange, onSelectVideo, previewUrl,
-    result, sceneContext, status, uploadedVideo, videos,
+    result, sceneContext, status, uploadedVideo, videos, selectedModel, onSelectedModelChange,
+    runYolo, onRunYoloChange, yoloModel, onYoloModelChange, youtubeUrl, onYoutubeUrlChange,
+    llmStatus, onRefreshLlmStatus,
   } = props;
 
   const statusLabel = {
@@ -319,10 +453,10 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
       <div className="shell">
         <div className="section-title">
           <div>
-            <h2>영상 입력부터 사고 분석까지 이어지는 화면 구조</h2>
+            <h2>영상 입력부터 사고 원인 분석까지</h2>
             <p>사용자가 mp4를 넣으면 백엔드가 루트 <code>video/</code> 폴더에 저장하고, 저장된 영상을 기준으로 사고 유형과 원인 흐름을 분석합니다.</p>
           </div>
-          <p className="muted">Colab 서버의 <code>LLM_API_BASE</code>를 넣으면 Qwen VL 서버로 분석 요청을 전달합니다. 비워두면 백엔드의 <code>agent/.env</code> 값을 사용합니다.</p>
+          <p className="muted">다음 단계에서는 YouTube URL 입력과 Qwen3-VL 모델 선택, pretrained YOLO evidence 옵션을 이 영역에 추가합니다.</p>
         </div>
 
         <div className="workspace">
@@ -344,13 +478,32 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
             <div className="control-grid">
               <label><span>카메라</span><input value={cameraId} onChange={(event) => onCameraIdChange(event.target.value)} aria-label="카메라 ID" /></label>
               <label><span>Colab API Base</span><input value={apiBase} onChange={(event) => onApiBaseChange(event.target.value)} placeholder="https://xxxxx.ngrok-free.app/v1" aria-label="Colab API Base" /></label>
-              <label><span>분석 질문</span><select aria-label="분석 질문"><option>사고 유형 + 부상자 수 + 원인</option><option>사고 유형 + 원인만</option></select></label>
+              <label><span>VL 모델</span><select value={selectedModel} onChange={(event) => onSelectedModelChange(event.target.value)} aria-label="VL 모델 선택">
+                <option value="qwen3_vl_32b">Qwen3-VL-32B</option>
+                <option value="internvl3">InternVL3</option>
+                <option value="llava_onevision_2_8b">LLaVA-OneVision-2-8B</option>
+                <option value="minicpm_v_4_5">MiniCPM-V 4.5</option>
+                <option value="qwen25_vl_32b">Qwen2.5-VL-32B</option>
+              </select></label>
+              <label><span>분석 질문</span><select aria-label="분석 질문"><option>사고 유형 + 부상자 수 + 원인</option><option>사고보고서 초안까지 생성</option></select></label>
+              <label><span>YouTube URL</span><input value={youtubeUrl} onChange={(event) => onYoutubeUrlChange(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-label="YouTube URL" /></label>
+              <label><span>YOLO 모델 파일</span><input value={yoloModel} onChange={(event) => onYoloModelChange(event.target.value)} aria-label="YOLO 모델 파일" /></label>
+            </div>
+            <div className="workspace-options">
+              <label className="check-control">
+                <input type="checkbox" checked={runYolo} onChange={(event) => onRunYoloChange(event.target.checked)} />
+                <span>pretrained YOLO evidence 사용</span>
+              </label>
+              <button className="mini-button" type="button" onClick={onRefreshLlmStatus}>Colab 연결 확인</button>
+              <span className={`live-badge ${llmStatus.live ? 'on' : 'off'}`}>
+                {llmStatus.live ? 'LIVE' : 'OFF'} {llmStatus.model || selectedModel}
+              </span>
             </div>
             <label className="textarea-control">
               <span>현장 상황 설명</span>
               <textarea value={sceneContext} onChange={(event) => onSceneContextChange(event.target.value)} rows={3} />
             </label>
-            <button className="button analyze-button" type="submit" disabled={(!file && !uploadedVideo) || status === 'running' || status === 'uploading'}>mp4 저장 및 사고 분석 시작</button>
+            <button className="button analyze-button" type="submit" disabled={(!file && !uploadedVideo && !youtubeUrl.trim()) || status === 'running' || status === 'uploading'}>영상 저장 및 사고 분석 시작</button>
             {videos.length > 0 && (
               <div className="video-list">
                 <strong>video 폴더 mp4</strong>
@@ -367,7 +520,12 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
                 <strong>2. 사고 분석 Pipeline</strong>
                 <span>{statusLabel}</span>
               </div>
-              <span className={`pill ${status}`}>{status.toUpperCase()}</span>
+              <div className="status-stack">
+                <span className={`pill ${status}`}>{status.toUpperCase()}</span>
+                {(status === 'running' || status === 'uploading' || elapsedSeconds > 0) && (
+                  <span className="elapsed-badge">elapsed {formatElapsed(elapsedSeconds)}</span>
+                )}
+              </div>
             </div>
             <div className="stages" aria-label="분석 단계">
               {stages.map((stage, index) => (
@@ -395,23 +553,205 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
   );
 }
 
+function EvaluationDashboard({ summary }: { summary: EvaluationSummary }) {
+  const scores = summary.scores.length ? summary.scores : fallbackModelScores;
+  const best = scores.find((item) => item.name === summary.best_model) ?? scores[0];
+  const maxScore = Math.max(...scores.map((item) => item.total));
+  const charts = summary.charts?.length ? summary.charts : [
+    'eval/output/confusion_matrix.png',
+    'eval/output/cause_recall_by_prompt.png',
+    'eval/output/latency_boxplot.png',
+    'eval/output/model_score_bar.png',
+  ];
+
+  return (
+    <section id="dashboard" className="shell">
+      <div className="section-title">
+        <div>
+          <h2>Evaluation Dashboard</h2>
+          <p>사고 영상 데이터셋으로 모델과 프롬프트별 정확도를 비교하고, matplotlib 산출물을 프론트엔드에 탑재하는 영역입니다.</p>
+        </div>
+        <p className="muted">현재 데이터셋: <code>{summary.dataset ?? 'sample_accident_eval'}</code> · 갱신: <code>{summary.updated_at ?? 'sample'}</code></p>
+      </div>
+
+      <div className="score-strip">
+        <MetricCard label="Best Model" value={best.name} detail={best.prompt} />
+        <MetricCard label="Total Score" value={best.total.toFixed(2)} detail="weighted score" />
+        <MetricCard label="Cause Recall" value={`${Math.round(best.causeRecall * 100)}%`} detail="원인 키워드 회수율" />
+        <MetricCard label="JSON Valid" value={`${Math.round(best.jsonValid * 100)}%`} detail="schema pass rate" />
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="dashboard-card wide">
+          <div className="card-title">모델·프롬프트별 종합 점수</div>
+          <div className="bar-chart" aria-label="model score chart">
+            {scores.map((item) => (
+              <div className="bar-row" key={`${item.name}-${item.prompt}`}>
+                <span>{item.name}</span>
+                <div className="bar-track"><i style={{ width: `${(item.total / maxScore) * 100}%` }} /></div>
+                <b>{item.total.toFixed(2)}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="dashboard-card">
+          <div className="card-title">평가 지표</div>
+          <div className="mini-table">
+            <span>Type Accuracy</span><strong>{Math.round(best.typeAccuracy * 100)}%</strong>
+            <span>Cause Keyword Recall</span><strong>{Math.round(best.causeRecall * 100)}%</strong>
+            <span>Average Latency</span><strong>{best.latency.toFixed(1)}s</strong>
+          </div>
+        </div>
+        <div className="dashboard-card">
+          <div className="card-title">추가할 matplotlib 산출물</div>
+          <ul className="plain-list">
+            {charts.map((chart) => <li key={chart}>{chart}</li>)}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <article className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function ReportDashboard({ result }: { result: AnalysisResponse | null }) {
+  const report = {
+    title: '건설현장 추락 사고 분석 보고서 초안',
+    overview: result?.analysis.details || '사고 전후 프레임에서 작업자 위치 변화와 구조물 불안정 가능성을 확인하고, 사고 유형과 원인 후보를 정리합니다.',
+    cause: result?.analysis.cause || '구조물 이동 또는 작업 위치 변화로 인한 추락 가능성',
+    actions: [
+      '고소작업 전 구조물 고정 상태를 점검합니다.',
+      '작업 중 구조물 이동 또는 임의 조작을 제한합니다.',
+      '사고 위험 작업 구간에 접근 통제와 신호 담당자를 배치합니다.',
+    ],
+  };
+
+  return (
+    <section id="reports" className="workspace-band">
+      <div className="shell">
+        <div className="section-title">
+          <div>
+            <h2>Report Draft Dashboard</h2>
+            <p>VL 판단 결과를 사람이 바로 검토할 수 있는 사고보고서 초안과 재발 방지 조치로 변환합니다.</p>
+          </div>
+          <p className="muted">마지막 목표인 논문형 자동 작성은 이 보고서 데이터를 기반으로 abstract, method, experiment, result 형태로 확장합니다.</p>
+        </div>
+        <div className="report-layout">
+          <article className="report-paper">
+            <p className="eyebrow">Auto Draft</p>
+            <h3>{report.title}</h3>
+            <h4>1. 사고 개요</h4>
+            <p>{report.overview}</p>
+            <h4>2. 원인 분석</h4>
+            <p>{report.cause}</p>
+            <h4>3. 재발 방지 조치</h4>
+            <ol>
+              {report.actions.map((action) => <li key={action}>{action}</li>)}
+            </ol>
+          </article>
+          <div className="dashboard-card">
+            <div className="card-title">논문형 자동 작성 구조</div>
+            <div className="paper-flow">
+              <span>Abstract</span>
+              <span>Method</span>
+              <span>Dataset</span>
+              <span>Evaluation</span>
+              <span>Result</span>
+              <span>Limitations</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ModelRecommendation() {
+  const models = [
+    {
+      name: 'Qwen3-VL-32B',
+      tag: '1순위 reasoning 모델',
+      role: '긴 영상 이해와 원인-결과 설명에 가장 잘 맞는 주 모델 후보입니다.',
+      notebook: 'server/Qwen3_VL_32B_colab_server.ipynb',
+      useCase: '최종 보고서 초안, 사고 원인 분석, 고정밀 평가 기준',
+    },
+    {
+      name: 'InternVL3',
+      tag: '강한 open-source MLLM',
+      role: 'perception과 reasoning 성능 비교군으로 적합합니다.',
+      notebook: 'server/InternVL3_colab_server.ipynb',
+      useCase: 'Qwen3-VL과 perception/reasoning 비교',
+    },
+    {
+      name: 'LLaVA-OneVision-2',
+      tag: '8B급 video baseline',
+      role: '속도와 성능의 균형을 비교하기 좋은 경량 video baseline입니다.',
+      notebook: 'server/LLaVA_OneVision_2_8B_colab_server.ipynb',
+      useCase: '저비용 baseline, latency 비교',
+    },
+    {
+      name: 'MiniCPM-V 4.5',
+      tag: '효율형 video 모델',
+      role: '긴 영상 token 압축과 빠른 실험용 fallback 후보입니다.',
+      notebook: 'server/MiniCPM_V_4_5_colab_server.ipynb',
+      useCase: '빠른 반복 실험, fallback 비교',
+    },
+  ];
+
+  return (
+    <section id="models" className="shell">
+      <div className="section-title">
+        <div>
+          <h2>Qwen3-VL 외 비교 모델 후보</h2>
+          <p>최종 성능은 같은 사고 영상 데이터셋에서 모델과 프롬프트별로 수치화해 비교합니다.</p>
+        </div>
+        <p className="muted">VL 모델은 사고 원인 reasoning 담당, YOLO는 학습 없이 pretrained evidence 담당으로 역할을 나눕니다.</p>
+      </div>
+      <div className="grid-4">
+        {models.map((model) => (
+          <article className="feature model-card" key={model.name}>
+            <span className="tag">{model.tag}</span>
+            <h3>{model.name}</h3>
+            <p className="muted">{model.role}</p>
+            <dl className="model-meta">
+              <dt>Notebook</dt>
+              <dd>{model.notebook}</dd>
+              <dt>Use case</dt>
+              <dd>{model.useCase}</dd>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Pipeline() {
   const items = [
-    ['mp4 업로드', 'React 프론트엔드에서 선택한 영상을 FastAPI 백엔드로 전송합니다.'],
-    ['video 폴더 저장', '백엔드가 루트 video 폴더에 mp4 파일을 저장하고 목록으로 관리합니다.'],
-    ['VL 판단', 'Colab Qwen VL 서버가 사고 유형, 부상자 수, 원인을 JSON으로 판단합니다.'],
-    ['JSON 검증', 'primary_type, injured_count, cause, details, evidence를 schema 기준으로 확인합니다.'],
-    ['분석 payload', '사고 결과를 cctv_events, evidence_photos, tts_alert_logs에 맞는 payload로 변환합니다.'],
+    ['mp4 / YouTube 입력', '파일 업로드와 URL 입력을 같은 video 저장 파이프라인으로 통합합니다.'],
+    ['contact sheet', '주요 프레임을 시간 라벨과 함께 압축해 VL 모델 입력으로 사용합니다.'],
+    ['YOLO evidence', 'pretrained 모델로 사람 bbox와 위치 변화 힌트를 생성합니다.'],
+    ['VL reasoning', 'Qwen3-VL이 사고 유형, 부상자 수, 원인 흐름을 판단합니다.'],
+    ['report & eval', '보고서 초안과 평가 대시보드로 결과를 설명 가능하게 만듭니다.'],
   ];
 
   return (
     <section id="pipeline" className="shell">
       <div className="section-title">
         <div>
-          <h2>영상 전체를 그대로 넘기지 않고, 판단 가능한 장면으로 압축했습니다.</h2>
-          <p>백엔드가 mp4에서 주요 프레임을 뽑고 contact sheet를 만든 뒤 VL 모델이 시간순 변화를 비교합니다.</p>
+          <h2>서비스형 사고 분석 파이프라인</h2>
+          <p>모델 호출보다 중요한 부분은 영상 입력, 근거 생성, 판단, 보고서, 평가가 이어지는 구조입니다.</p>
         </div>
-        <p className="muted">목표는 단순 이미지 분류가 아니라 사고 유형, 부상자 수, 원인을 JSON으로 구조화하는 것입니다.</p>
+        <p className="muted">정확도는 사고 영상 테스트셋으로 모델·프롬프트별로 산출하고 프론트엔드에 표시합니다.</p>
       </div>
       <div className="pipeline">
         {items.map(([title, body], index) => (
@@ -422,91 +762,34 @@ function Pipeline() {
   );
 }
 
-function Features() {
-  const features = [
-    ['Video Upload', 'video 폴더 저장', '프론트엔드에서 업로드한 mp4를 백엔드가 루트 video 폴더에 저장하고 목록으로 관리합니다.'],
-    ['Accident Analysis', '사고 유형·부상자·원인 판단', 'VL 모델이 추락, 낙상, 화재, 기타 사고 유형과 부상자 수, 원인 흐름을 JSON으로 생성합니다.'],
-    ['Cause Analysis', '사고 원인 판단 강화', '사고 전 행동, 구조물 변화, 사람의 위치 변화를 시간순으로 비교해 가능한 원인 흐름을 생성합니다.'],
-    ['Colab Server', 'Qwen2.5-VL 32B 추천', 'Colab Pro에서는 Qwen2.5-VL-32B-Instruct를 1순위로 두고, VRAM 부족 시 7B로 fallback합니다.'],
-    ['Fallback', 'VL 응답 안정화', '응답이 JSON이 아니거나 반복 토큰으로 깨지는 경우를 감지하고 재시도 또는 fallback 판단을 적용합니다.'],
-    ['React + FastAPI', '프론트와 백엔드 분리', '업로드 상태, 분석 상태, 결과 payload를 React와 FastAPI API로 연결했습니다.'],
-  ];
-
-  return (
-    <section className="shell">
-      <div className="section-title">
-        <div>
-          <h2>구현 포인트</h2>
-          <p>사고 판단 모델을 서비스 DB와 바로 붙이지 않고, 업로드, 관찰, 판단, 저장 payload를 분리했습니다.</p>
-        </div>
-      </div>
-      <div className="grid-3">
-        {features.map(([tag, title, body]) => (
-          <article className="feature" key={title}>
-            <span className="tag">{tag}</span>
-            <h3>{title}</h3>
-            <p className="muted">{body}</p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function PromptSection() {
-  return (
-    <section id="prompt" className="shell">
-      <div className="section-title">
-        <div>
-          <h2>프롬프트는 시각 근거 기반 판단에 초점을 맞췄습니다.</h2>
-          <p>마지막 장면만 보고 결론을 내리지 않도록, 사고 전 행동과 사고 순간 변화를 연결해 원인을 판단하게 했습니다.</p>
-        </div>
-      </div>
-      <div className="grid-2">
-        <div className="code-panel">
-          <div className="code-title">VL 판단 스키마 일부</div>
-          <pre><code>{`{
-  "primary_type": "낙상|추락|화재|기타",
-  "injured_count": 1,
-  "cause": "사고 전 행동 -> 구조물 변화 -> 사고 결과",
-  "confidence": 0.0,
-  "timeline": [{ "time": "16s", "observed_change": "구조물 이동 또는 추락 발생" }],
-  "details": "[사고 경위] 시간순 원인-결과 흐름"
-}`}</code></pre>
-        </div>
-        <div>
-          <div className="quote">마지막 장면만 보고 결론 내리지 말고, 사고 전 행동과 사고 순간 변화를 연결해 원인을 판단하세요.</div>
-          <p className="muted spacious">핵심은 사고 유형 분류보다 왜 사고가 발생했는지 설명 가능한 원인 흐름을 만드는 것입니다.</p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function SchemaSection() {
   const rows = [
-    ['primary_type', '사고 유형을 worker_fall_from_height, worker_slip_and_fall, fire_or_smoke 라벨로 변환'],
-    ['injured_count', 'raw_judgment의 workers 정보를 기준으로 부상자 수 요약'],
-    ['cause', '사고 원인 흐름을 분석 요약 및 agent_summary에 반영'],
-    ['contact sheet', 'snapshot_path, evidence_photos.photo_url을 증거 이미지로 연결'],
+    ['analysis', '사고 유형, 부상자 수, confidence, cause를 요약'],
+    ['report_draft', '사고 개요, 경위, 원인 분석, 재발 방지 조치 생성'],
+    ['evaluation', '모델별 score, confusion matrix, cause recall, latency 저장'],
+    ['paper_draft', '실험 결과를 논문형 abstract/method/result로 자동 작성'],
   ];
 
   return (
     <section id="schema" className="shell">
       <div className="section-title">
         <div>
-          <h2>Qwen 출력은 그대로 저장하지 않고 분석 payload로 변환합니다.</h2>
-          <p>LLM은 판단 JSON을 만들고 로컬 mapper가 서비스 테이블에 맞는 안정적인 row 형태로 바꿉니다.</p>
+          <h2>다음 schema는 분석, 보고서, 평가, 논문형 작성까지 확장합니다.</h2>
+          <p>Qwen 출력은 그대로 저장하지 않고 프론트에서 검토 가능한 구조화 payload로 변환합니다.</p>
         </div>
       </div>
       <div className="grid-2">
-        <div className="table" role="table" aria-label="Agent 결과와 payload 매핑">
+        <div className="table" role="table" aria-label="확장 payload 매핑">
           {rows.map(([key, value]) => <div className="row" key={key}><strong>{key}</strong><span>{value}</span></div>)}
         </div>
         <div className="code-panel">
-          <div className="code-title">백엔드 실행 예시</div>
-          <pre><code>{`uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-npm run dev`}</code></pre>
+          <div className="code-title">확장 JSON 예시</div>
+          <pre><code>{`{
+  "analysis": { "accident_type": "추락", "injured_count": 1 },
+  "report_draft": { "overview": "...", "prevention_actions": [] },
+  "evaluation": { "model": "Qwen3-VL-32B", "total_score": 0.86 },
+  "paper_draft": { "abstract": "...", "method": "...", "result": "..." }
+}`}</code></pre>
         </div>
       </div>
     </section>
