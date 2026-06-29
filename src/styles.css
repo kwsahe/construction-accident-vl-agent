@@ -670,6 +670,59 @@ h2 {
   flex-direction: column;
 }
 
+.model-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.model-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.model-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.model-check {
+  padding: 10px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: #fff0ed;
+}
+
+.model-check.ok {
+  border-color: var(--ok);
+  background: #e8f5ee;
+}
+
+.model-check.muted-check {
+  border-color: var(--line);
+  background: #f8f3e9;
+}
+
+.model-check span,
+.model-check strong {
+  display: block;
+}
+
+.model-check span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.model-check strong {
+  font-size: 14px;
+}
+
 .model-meta {
   display: grid;
   gap: 6px;
@@ -812,6 +865,7 @@ code {
 
   .stats,
   .pipeline,
+  .yolo-runner,
   .control-grid,
   .stages,
   .result-grid,
@@ -853,6 +907,63 @@ code {
   align-items: center;
   gap: 10px;
   padding: 0 16px 16px;
+}
+
+.mode-note {
+  margin: -6px 16px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.yolo-runner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 0 16px 16px;
+}
+
+.yolo-runner span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.yolo-result,
+.detecting-preview {
+  overflow: hidden;
+  margin: 0 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.panel-head.compact {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.yolo-video {
+  width: calc(100% - 24px);
+  margin: 12px;
+}
+
+.yolo-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px 12px;
+  padding: 0 12px 12px;
+  font-size: 13px;
+}
+
+.yolo-meta span {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.yolo-meta strong {
+  overflow-wrap: anywhere;
 }
 
 .check-control {
@@ -1148,6 +1259,7 @@ code {
 
 @media (max-width: 920px) {
   .grid-4,
+  .model-status-grid,
   .score-strip,
   .dashboard-grid,
   .report-layout {
@@ -1157,6 +1269,7 @@ code {
 
 @media (max-width: 640px) {
   .grid-4,
+  .model-status-grid,
   .score-strip,
   .dashboard-grid,
   .report-layout {

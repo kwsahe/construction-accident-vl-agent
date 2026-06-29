@@ -132,6 +132,7 @@ agent/.env.example을 참고해서 agent/.env를 만듭니다.
   agent/output/accident_judgment_result.json
   agent/output/accident_analysis_payload.json
   agent/output/pt_detection_result.json
+  agent/output/yolo_annotated_{video_name}.mp4
 
 video 폴더에는 업로드한 원본 영상이 저장됩니다.
 

@@ -258,6 +258,8 @@ PROMPT = """
 각 프레임의 시간 라벨을 순서대로 비교해 사고 발생 여부, 사고 유형, 부상자 수, 가장 그럴듯한 원인을 판단하세요.
 
 중요 판단 기준:
+- 모든 값은 한국어로 작성하세요. 중국어, 영어 문장, 일본어를 절대 사용하지 마세요.
+- 외국어로 생각했더라도 최종 JSON 문자열 값은 모두 자연스러운 한국어로 번역해서 작성하세요.
 - 마지막 장면만 보고 결론 내리지 말고, 사고 전 행동 -> 사고 순간 변화 -> 사고 후 결과를 연결하세요.
 - 비계/작업발판/사다리/높은 위치에서 아래로 떨어지면 primary_type은 "추락"입니다.
 - 같은 바닥면에서 미끄러지거나 넘어지는 경우만 "낙상"입니다.
@@ -320,6 +322,7 @@ def main() -> int:
     parser.add_argument("--moment-after", type=float, default=2.0, help="Seconds after detected accident time")
     parser.add_argument("--pt-model", default="", help="Optional YOLO .pt model path")
     parser.add_argument("--pt-output", default=str(DEFAULT_PT_OUTPUT), help="PT detection result JSON path")
+    parser.add_argument("--pt-annotated-output", default="", help="Optional annotated YOLO mp4 output path")
     parser.add_argument("--run-pt", action="store_true", help="Run YOLO inference when --pt-model is provided")
     parser.add_argument("--insert-db", action="store_true")
     parser.add_argument("--api-base", default=os.environ.get("LLM_API_BASE", ""))
@@ -355,6 +358,7 @@ def main() -> int:
         video_path=video_path,
         output_path=args.pt_output,
         run_inference=args.run_pt,
+        annotated_output_path=args.pt_annotated_output or None,
     )
     print(f"pt status: {pt_result.status} ({pt_result.message})")
     print(f"pt result saved: {args.pt_output}")
@@ -416,6 +420,7 @@ def main() -> int:
     print("[judgment] running full VL chat judgment for accident type, injured count, and cause...")
     raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context, args.request_timeout)
     raw_judgment = _sanitize_accident_judgment(raw_judgment)
+    raw_judgment = _force_korean_judgment(raw_judgment)
     if moment_detection:
         raw_judgment["moment_detection"] = moment_detection
     if args.scene_context:
@@ -682,6 +687,14 @@ def call_qwen_chat(
 ) -> dict[str, Any]:
     encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     prompt = f"{PROMPT}\n\n{EXTRA_CAUSE_PROMPT}"
+    if os.environ.get("LLM_PROVIDER", "").strip().lower() == "ollama_native":
+        prompt = (
+            f"{prompt}\n\n"
+            "[로컬 Ollama 출력 규칙]\n"
+            "추론 과정, thinking, 설명 문단을 출력하지 마세요. 반드시 하나의 JSON 객체만 출력하세요. "
+            "JSON 앞뒤에 markdown, 코드블록, 자연어 설명을 붙이지 마세요. "
+            "모든 JSON 문자열 값은 한국어로만 작성하세요. 중국어 문자를 절대 포함하지 마세요."
+        )
     if scene_context:
         prompt = (
             f"{prompt}\n\n[현장 상황 설명]\n{scene_context}\n"
@@ -746,7 +759,19 @@ def call_qwen_chat(
             }
         return {"primary_type": "기타", "confidence": 0.0, "details": raw_text}
 
-    return json.loads(match.group(0))
+    parsed = _loads_model_json(match.group(0))
+    if parsed is None:
+        print("[chat] invalid JSON returned by VL, using text fallback.")
+        return {
+            "primary_type": "기타",
+            "accident_type": "기타",
+            "accident_type_ko": "기타",
+            "injured_count": 0,
+            "cause": _compact_text(raw_text, 500),
+            "confidence": 0.2,
+            "details": _compact_text(raw_text, 900),
+        }
+    return parsed
 
 
 def call_qwen_moment(
@@ -811,11 +836,24 @@ def call_qwen_moment(
             "event_summary": raw_text,
             "evidence": [],
         }
-    parsed = json.loads(match.group(0))
+    parsed = _loads_model_json(match.group(0))
+    if parsed is None:
+        return {
+            "accident_detected": False,
+            "accident_time_sec": None,
+            "accident_start_sec": None,
+            "accident_end_sec": None,
+            "confidence": 0.0,
+            "event_summary": _compact_text(raw_text, 500),
+            "evidence": [],
+        }
     return _normalize_moment_detection(parsed)
 
 
 def _post_chat_completion(api_base: str, payload: dict[str, Any], request_timeout: int = 900) -> dict[str, Any]:
+    if os.environ.get("LLM_PROVIDER", "").strip().lower() == "ollama_native":
+        return _post_ollama_chat(api_base, payload, request_timeout)
+
     api_key = os.environ.get("LLM_API_KEY", "").strip() or "dummy"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     retries = int(os.environ.get("LLM_REQUEST_RETRIES", "3"))
@@ -858,12 +896,113 @@ def _post_chat_completion(api_base: str, payload: dict[str, Any], request_timeou
     return data
 
 
+def _post_ollama_chat(api_base: str, payload: dict[str, Any], request_timeout: int = 900) -> dict[str, Any]:
+    message = (payload.get("messages") or [{}])[0]
+    content = message.get("content") or []
+    prompt_parts: list[str] = []
+    images: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            prompt_parts.append(str(item.get("text") or ""))
+        elif item.get("type") == "image_url":
+            image_url = (item.get("image_url") or {}).get("url", "")
+            if "," in image_url:
+                images.append(image_url.split(",", 1)[1])
+
+    root = api_base[:-3] if api_base.rstrip("/").endswith("/v1") else api_base
+    body = json.dumps({
+        "model": payload.get("model") or os.environ.get("LLM_MODEL", "minicpm-v4.6:q4_K_M"),
+        "messages": [{
+            "role": "user",
+            "content": "\n\n".join(prompt_parts),
+            "images": images,
+        }],
+        "stream": False,
+        "think": False,
+        "options": {
+            "temperature": payload.get("temperature", 0.05),
+            "num_predict": max(int(payload.get("max_tokens", 600)), 600),
+        },
+    }, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"{root}/api/chat",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        raise _chat_request_error(root, request_timeout, exc) from exc
+
+    message = data.get("message") or {}
+    text = (message.get("content") or "").strip()
+    if not text:
+        thinking = str(message.get("thinking") or "").strip()
+        if thinking:
+            raise RuntimeError(
+                "Ollama returned thinking text but no final JSON content. "
+                "Retry after this patch with think=false applied, or use a non-thinking Ollama tag. "
+                f"done_reason={data.get('done_reason')}, thinking_preview={thinking[:400]}"
+            )
+        raise RuntimeError(f"Ollama returned empty response: {json.dumps(data, ensure_ascii=False)}")
+    return {"choices": [{"message": {"content": text}}]}
+
+
 def _chat_request_error(api_base: str, request_timeout: int, exc: Exception) -> RuntimeError:
     return RuntimeError(
         "Qwen chat request failed. Check that the Colab server is running, "
         f"ngrok URL is current, and api_base ends with /v1. Timeout={request_timeout}s. URL: {api_base}/chat/completions. "
         f"Original error: {exc}"
     )
+
+
+def _loads_model_json(text: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    repaired = _strip_invalid_json_control_chars(text)
+    try:
+        data = json.loads(repaired)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError as exc:
+        print(f"[json] failed to parse model JSON after repair: {exc}")
+        return None
+
+
+def _strip_invalid_json_control_chars(text: str) -> str:
+    output: list[str] = []
+    in_string = False
+    escaped = False
+    for char in text:
+        if escaped:
+            output.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            output.append(char)
+            escaped = True
+            continue
+        if char == '"':
+            output.append(char)
+            in_string = not in_string
+            continue
+        if in_string and ord(char) < 0x20:
+            output.append(" ")
+            continue
+        output.append(char)
+    return "".join(output)
+
+
+def _compact_text(text: str, max_chars: int) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact[:max_chars]
 
 
 def _normalize_moment_detection(raw: dict[str, Any]) -> dict[str, Any]:
@@ -1111,6 +1250,39 @@ def _sanitize_accident_judgment(raw: dict[str, Any]) -> dict[str, Any]:
     for key in ("legacy_zone_analysis", "risk_cause_analysis"):
         cleaned.pop(key, None)
     return cleaned
+
+
+def _force_korean_judgment(raw: dict[str, Any]) -> dict[str, Any]:
+    accident_type = str(raw.get("primary_type") or raw.get("accident_type_ko") or "사고")
+    cause = str(raw.get("cause") or "")
+    if _contains_cjk(cause):
+        cause = ""
+    fallback = (
+        f"{accident_type} 사고로 판단됩니다. 사고 전후 프레임에서 작업자 위치 변화와 "
+        "구조물 또는 작업 위치 변화가 관찰되어, 원인은 영상 근거 기준으로 추가 확인이 필요합니다."
+    )
+    cause_fallback = cause or fallback
+    cleaned = _replace_cjk_strings(raw, cause_fallback)
+    if not str(cleaned.get("cause") or "").strip():
+        cleaned["cause"] = cause_fallback
+    if not str(cleaned.get("details") or "").strip() or _contains_cjk(str(cleaned.get("details"))):
+        cleaned["details"] = f"[사고 경위]\n{cause_fallback}"
+    return cleaned
+
+
+def _replace_cjk_strings(value: Any, fallback: str) -> Any:
+    if isinstance(value, dict):
+        return {key: _replace_cjk_strings(item, fallback) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_cjk_strings(item, fallback) for item in value]
+    if isinstance(value, str):
+        return fallback if _contains_cjk(value) else value
+    return value
+
+
+def _contains_cjk(value: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", value or ""))
+
 
 def _safe_float(value: Any) -> float | None:
     try:

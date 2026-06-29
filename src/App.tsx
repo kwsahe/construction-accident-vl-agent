@@ -27,6 +27,8 @@ type AnalysisResponse = {
   analysis: AnalysisSummary;
   payload: Record<string, unknown>;
   raw_judgment: Record<string, unknown>;
+  pt_result?: YoloResult;
+  annotated_video_url?: string;
   logs: string;
 };
 
@@ -52,6 +54,38 @@ type LlmStatus = {
   live: boolean;
   model: string;
   api_base: string;
+  message: string;
+};
+
+type YoloResult = {
+  status: string;
+  model_path?: string;
+  video_path?: string;
+  annotated_video_path?: string;
+  detections: Array<Record<string, unknown>>;
+  labels: string[];
+  confidence?: number;
+  message: string;
+};
+
+type YoloResponse = {
+  video: VideoMeta;
+  result: YoloResult;
+  annotated_video_url: string;
+  result_url: string;
+};
+
+type OllamaModel = {
+  name: string;
+  model?: string;
+  size?: number;
+  modified_at?: string;
+};
+
+type OllamaStatus = {
+  live: boolean;
+  base_url: string;
+  models: OllamaModel[];
   message: string;
 };
 
@@ -93,10 +127,18 @@ function App() {
   const [cameraId, setCameraId] = useState('Camera 15');
   const [evaluationSummary, setEvaluationSummary] = useState<EvaluationSummary>({ scores: fallbackModelScores });
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [inferenceProvider, setInferenceProvider] = useState<'colab' | 'ollama'>('colab');
   const [selectedModel, setSelectedModel] = useState('qwen3_vl_32b');
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState('minicpm-v4.6:q4_K_M');
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://127.0.0.1:11434');
   const [runYolo, setRunYolo] = useState(false);
+  const [fastMode, setFastMode] = useState(true);
   const [yoloModel, setYoloModel] = useState('yolo26n.pt');
+  const [yoloStatus, setYoloStatus] = useState<AnalyzeState>('idle');
+  const [yoloResult, setYoloResult] = useState<YoloResponse | null>(null);
+  const [yoloError, setYoloError] = useState('');
   const [llmStatus, setLlmStatus] = useState<LlmStatus>({ live: false, model: '', api_base: '', message: 'not checked' });
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ live: false, base_url: 'http://127.0.0.1:11434', models: [], message: 'not checked' });
   const [sceneContext, setSceneContext] = useState(
     '건설현장 CCTV 사고 영상입니다. 영상에 보이는 행동, 구조물 변화, 사람의 위치 변화를 근거로 사고 유형과 원인을 판단합니다.',
   );
@@ -104,6 +146,7 @@ function App() {
   useEffect(() => {
     refreshVideos().catch(() => undefined);
     refreshEvaluationSummary().catch(() => undefined);
+    refreshOllamaStatus().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -179,11 +222,21 @@ function App() {
     setLlmStatus(data);
   };
 
+  const refreshOllamaStatus = async () => {
+    const response = await fetch(`${API_BASE}/api/ollama/status`);
+    if (!response.ok) return;
+    const data = await response.json() as OllamaStatus;
+    setOllamaStatus(data);
+  };
+
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = event.target.files?.[0] ?? null;
     setFile(selected);
     setUploadedVideo(null);
     setResult(null);
+    setYoloResult(null);
+    setYoloError('');
+    setYoloStatus(selected ? 'ready' : 'idle');
     setError('');
     setActiveStage(-1);
     setAnalysisStartedAt(null);
@@ -243,9 +296,13 @@ function App() {
       formData.append('api_base', apiBase);
       formData.append('camera_id', cameraId);
       formData.append('scene_context', sceneContext);
+      formData.append('inference_provider', inferenceProvider);
       formData.append('model_key', selectedModel);
+      formData.append('ollama_base_url', ollamaBaseUrl);
+      formData.append('ollama_model', selectedOllamaModel);
       formData.append('run_yolo', String(runYolo));
       formData.append('yolo_model', yoloModel);
+      formData.append('fast_mode', String(fastMode));
 
       const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: formData });
       if (!response.ok) throw new Error(await readError(response));
@@ -260,11 +317,40 @@ function App() {
     }
   };
 
+  const runYoloOnly = async () => {
+    if (yoloStatus === 'running' || status === 'running' || status === 'uploading') return;
+
+    try {
+      setYoloStatus('running');
+      setYoloError('');
+      setYoloResult(null);
+      const video = uploadedVideo ?? (youtubeUrl.trim() && !file ? await downloadYoutubeVideo() : await uploadVideo());
+      const formData = new FormData();
+      formData.append('filename', video.filename);
+      formData.append('yolo_model', yoloModel);
+
+      const response = await fetch(`${API_BASE}/api/yolo/analyze`, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = await response.json() as YoloResponse;
+      setYoloResult(data);
+      setYoloStatus('done');
+      setStatus('ready');
+      setActiveStage(1);
+    } catch (err) {
+      setYoloStatus('error');
+      setYoloError(err instanceof Error ? err.message : String(err));
+      setStatus((current) => current === 'uploading' ? 'error' : current);
+    }
+  };
+
   const selectExistingVideo = (video: VideoMeta) => {
     setFile(null);
     setPreviewUrl(`${API_BASE}${video.url}`);
     setUploadedVideo(video);
     setResult(null);
+    setYoloResult(null);
+    setYoloError('');
+    setYoloStatus('ready');
     setError('');
     setStatus('ready');
     setActiveStage(0);
@@ -301,28 +387,47 @@ function App() {
           onCameraIdChange={setCameraId}
           onFileChange={handleFileChange}
           onRunAnalysis={runAnalysis}
+          onRunYoloOnly={runYoloOnly}
           onSceneContextChange={setSceneContext}
           onSelectVideo={selectExistingVideo}
           onSelectedModelChange={setSelectedModel}
+          inferenceProvider={inferenceProvider}
+          onInferenceProviderChange={setInferenceProvider}
+          selectedOllamaModel={selectedOllamaModel}
+          onSelectedOllamaModelChange={setSelectedOllamaModel}
+          ollamaBaseUrl={ollamaBaseUrl}
+          onOllamaBaseUrlChange={setOllamaBaseUrl}
           onRunYoloChange={setRunYolo}
+          onFastModeChange={setFastMode}
           onYoloModelChange={setYoloModel}
           onYoutubeUrlChange={setYoutubeUrl}
           previewUrl={previewUrl}
           result={result}
           sceneContext={sceneContext}
           selectedModel={selectedModel}
+          ollamaStatus={ollamaStatus}
           status={status}
           uploadedVideo={uploadedVideo}
           videos={videos}
           runYolo={runYolo}
+          fastMode={fastMode}
           yoloModel={yoloModel}
+          yoloResult={yoloResult}
+          yoloStatus={yoloStatus}
+          yoloError={yoloError}
           youtubeUrl={youtubeUrl}
           llmStatus={llmStatus}
+          onRefreshOllamaStatus={refreshOllamaStatus}
           onRefreshLlmStatus={refreshLlmStatus}
         />
         <EvaluationDashboard summary={evaluationSummary} />
         <ReportDashboard result={result} />
-        <ModelRecommendation />
+        <ModelRecommendation
+          llmStatus={llmStatus}
+          ollamaStatus={ollamaStatus}
+          onRefreshColab={refreshLlmStatus}
+          onRefreshOllama={refreshOllamaStatus}
+        />
         <Pipeline />
         <SchemaSection />
       </main>
@@ -410,34 +515,52 @@ type WorkspaceProps = {
   onCameraIdChange: (value: string) => void;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRunAnalysis: (event?: FormEvent) => void;
+  onRunYoloOnly: () => void;
   onSceneContextChange: (value: string) => void;
   onSelectVideo: (video: VideoMeta) => void;
   onSelectedModelChange: (value: string) => void;
+  inferenceProvider: 'colab' | 'ollama';
+  onInferenceProviderChange: (value: 'colab' | 'ollama') => void;
+  selectedOllamaModel: string;
+  onSelectedOllamaModelChange: (value: string) => void;
+  ollamaBaseUrl: string;
+  onOllamaBaseUrlChange: (value: string) => void;
   onRunYoloChange: (value: boolean) => void;
+  onFastModeChange: (value: boolean) => void;
   onYoloModelChange: (value: string) => void;
   onYoutubeUrlChange: (value: string) => void;
   previewUrl: string;
   result: AnalysisResponse | null;
   sceneContext: string;
   selectedModel: string;
+  ollamaStatus: OllamaStatus;
   status: AnalyzeState;
   uploadedVideo: VideoMeta | null;
   videos: VideoMeta[];
   runYolo: boolean;
+  fastMode: boolean;
   yoloModel: string;
+  yoloResult: YoloResponse | null;
+  yoloStatus: AnalyzeState;
+  yoloError: string;
   youtubeUrl: string;
   llmStatus: LlmStatus;
   onRefreshLlmStatus: () => void;
+  onRefreshOllamaStatus: () => void;
 };
 
 function AnalyzeWorkspace(props: WorkspaceProps) {
   const {
     activeStage, apiBase, cameraId, elapsedSeconds, error, file, jsonPreview, onApiBaseChange, onCameraIdChange,
-    onFileChange, onRunAnalysis, onSceneContextChange, onSelectVideo, previewUrl,
+    onFileChange, onRunAnalysis, onRunYoloOnly, onSceneContextChange, onSelectVideo, previewUrl,
     result, sceneContext, status, uploadedVideo, videos, selectedModel, onSelectedModelChange,
-    runYolo, onRunYoloChange, yoloModel, onYoloModelChange, youtubeUrl, onYoutubeUrlChange,
-    llmStatus, onRefreshLlmStatus,
+    inferenceProvider, onInferenceProviderChange, selectedOllamaModel, onSelectedOllamaModelChange, ollamaBaseUrl, onOllamaBaseUrlChange,
+    runYolo, onRunYoloChange, fastMode, onFastModeChange, yoloModel, onYoloModelChange, yoloResult, yoloStatus, yoloError, youtubeUrl, onYoutubeUrlChange,
+    llmStatus, ollamaStatus, onRefreshLlmStatus, onRefreshOllamaStatus,
   } = props;
+  const ollamaOptions = ollamaStatus.models.length
+    ? ollamaStatus.models.map((item) => item.name)
+    : ['minicpm-v4.6:q4_K_M', 'qwen3.5:4b', 'qwen3:4b', 'qwen2.5:3b', 'gemma3:4b-it-qat'];
 
   const statusLabel = {
     idle: '영상을 기다리는 중',
@@ -456,7 +579,7 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
             <h2>영상 입력부터 사고 원인 분석까지</h2>
             <p>사용자가 mp4를 넣으면 백엔드가 루트 <code>video/</code> 폴더에 저장하고, 저장된 영상을 기준으로 사고 유형과 원인 흐름을 분석합니다.</p>
           </div>
-          <p className="muted">다음 단계에서는 YouTube URL 입력과 Qwen3-VL 모델 선택, pretrained YOLO evidence 옵션을 이 영역에 추가합니다.</p>
+          <p className="muted">YouTube URL, VL 모델 선택, YOLO-only preview, pretrained YOLO evidence 옵션을 한 화면에서 제어합니다.</p>
         </div>
 
         <div className="workspace">
@@ -477,14 +600,28 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
             {previewUrl && <video className="video-preview" src={previewUrl} controls />}
             <div className="control-grid">
               <label><span>카메라</span><input value={cameraId} onChange={(event) => onCameraIdChange(event.target.value)} aria-label="카메라 ID" /></label>
-              <label><span>Colab API Base</span><input value={apiBase} onChange={(event) => onApiBaseChange(event.target.value)} placeholder="https://xxxxx.ngrok-free.app/v1" aria-label="Colab API Base" /></label>
-              <label><span>VL 모델</span><select value={selectedModel} onChange={(event) => onSelectedModelChange(event.target.value)} aria-label="VL 모델 선택">
+              <label><span>실행 위치</span><select value={inferenceProvider} onChange={(event) => onInferenceProviderChange(event.target.value as 'colab' | 'ollama')} aria-label="실행 위치 선택">
+                <option value="colab">Colab 서버</option>
+                <option value="ollama">Local Ollama</option>
+              </select></label>
+              {inferenceProvider === 'colab' ? (
+                <label><span>Colab API Base</span><input value={apiBase} onChange={(event) => onApiBaseChange(event.target.value)} placeholder="https://xxxxx.ngrok-free.app/v1" aria-label="Colab API Base" /></label>
+              ) : (
+                <label><span>Ollama Base URL</span><input value={ollamaBaseUrl} onChange={(event) => onOllamaBaseUrlChange(event.target.value)} placeholder="http://127.0.0.1:11434" aria-label="Ollama Base URL" /></label>
+              )}
+              {inferenceProvider === 'colab' ? (
+              <label><span>Colab VL 모델</span><select value={selectedModel} onChange={(event) => onSelectedModelChange(event.target.value)} aria-label="VL 모델 선택">
                 <option value="qwen3_vl_32b">Qwen3-VL-32B</option>
                 <option value="internvl3">InternVL3</option>
                 <option value="llava_onevision_2_8b">LLaVA-OneVision-2-8B</option>
                 <option value="minicpm_v_4_5">MiniCPM-V 4.5</option>
                 <option value="qwen25_vl_32b">Qwen2.5-VL-32B</option>
               </select></label>
+              ) : (
+              <label><span>Ollama 모델</span><select value={selectedOllamaModel} onChange={(event) => onSelectedOllamaModelChange(event.target.value)} aria-label="Ollama 모델 선택">
+                {ollamaOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select></label>
+              )}
               <label><span>분석 질문</span><select aria-label="분석 질문"><option>사고 유형 + 부상자 수 + 원인</option><option>사고보고서 초안까지 생성</option></select></label>
               <label><span>YouTube URL</span><input value={youtubeUrl} onChange={(event) => onYoutubeUrlChange(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-label="YouTube URL" /></label>
               <label><span>YOLO 모델 파일</span><input value={yoloModel} onChange={(event) => onYoloModelChange(event.target.value)} aria-label="YOLO 모델 파일" /></label>
@@ -494,11 +631,57 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
                 <input type="checkbox" checked={runYolo} onChange={(event) => onRunYoloChange(event.target.checked)} />
                 <span>pretrained YOLO evidence 사용</span>
               </label>
+              <label className="check-control">
+                <input type="checkbox" checked={fastMode} onChange={(event) => onFastModeChange(event.target.checked)} />
+                <span>빠른 분석 모드</span>
+              </label>
               <button className="mini-button" type="button" onClick={onRefreshLlmStatus}>Colab 연결 확인</button>
+              <button className="mini-button" type="button" onClick={onRefreshOllamaStatus}>Ollama 연결 확인</button>
               <span className={`live-badge ${llmStatus.live ? 'on' : 'off'}`}>
                 {llmStatus.live ? 'LIVE' : 'OFF'} {llmStatus.model || selectedModel}
               </span>
+              <span className={`live-badge ${ollamaStatus.live ? 'on' : 'off'}`}>
+                {ollamaStatus.live ? 'OLLAMA ON' : 'OLLAMA OFF'} {inferenceProvider === 'ollama' ? selectedOllamaModel : ''}
+              </span>
             </div>
+            <p className="mode-note">
+              {fastMode
+                ? '빠른 모드: auto-moment를 생략하고 고정 프레임 6장만 VL에 전달합니다.'
+                : '정밀 모드: overview sheet로 사고 순간을 먼저 찾은 뒤 최종 판단을 실행합니다.'}
+            </p>
+            <div className="yolo-runner">
+              <button
+                className="button secondary"
+                type="button"
+                onClick={onRunYoloOnly}
+                disabled={(!file && !uploadedVideo && !youtubeUrl.trim()) || yoloStatus === 'running' || status === 'running' || status === 'uploading'}
+              >
+                {yoloStatus === 'running' ? 'YOLO 적용 중...' : 'YOLO만 실행'}
+              </button>
+              <span>VL 분석 전에 사람/장비 bbox evidence와 어노테이션 영상을 먼저 확인합니다.</span>
+            </div>
+            {(yoloResult || yoloError) && (
+              <div className="yolo-result">
+                <div className="panel-head compact">
+                  <div>
+                    <strong>YOLO-only preview</strong>
+                    <span>{yoloResult ? `${yoloResult.result.detections.length} detections · ${yoloResult.result.labels.join(', ') || 'label 없음'}` : 'YOLO 실행 오류'}</span>
+                  </div>
+                  <span className={`pill ${yoloStatus}`}>{yoloStatus.toUpperCase()}</span>
+                </div>
+                {yoloResult?.annotated_video_url && (
+                  <video className="video-preview yolo-video" src={`${API_BASE}${yoloResult.annotated_video_url}`} controls />
+                )}
+                {yoloResult && (
+                  <div className="yolo-meta">
+                    <span>model</span><strong>{yoloModel}</strong>
+                    <span>confidence</span><strong>{typeof yoloResult.result.confidence === 'number' ? yoloResult.result.confidence.toFixed(2) : '-'}</strong>
+                    <span>labels</span><strong>{yoloResult.result.labels.join(', ') || '-'}</strong>
+                  </div>
+                )}
+                {yoloError && <div className="error-box">{yoloError}</div>}
+              </div>
+            )}
             <label className="textarea-control">
               <span>현장 상황 설명</span>
               <textarea value={sceneContext} onChange={(event) => onSceneContextChange(event.target.value)} rows={3} />
@@ -541,6 +724,18 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
               <div className="result-box"><span>신뢰도</span><strong>{typeof result?.analysis.confidence === 'number' ? result.analysis.confidence.toFixed(2) : '-'}</strong></div>
             </div>
             {result?.analysis.cause && <div className="cause-box"><span>판단 원인</span><p>{result.analysis.cause}</p></div>}
+            {result?.annotated_video_url && (
+              <div className="detecting-preview">
+                <div className="panel-head compact">
+                  <div>
+                    <strong>YOLO detecting mode</strong>
+                    <span>{result.pt_result?.detections.length ?? 0} detections · {result.pt_result?.labels.join(', ') || 'label 없음'}</span>
+                  </div>
+                  <span className="pill done">DETECTED</span>
+                </div>
+                <video className="video-preview yolo-video" src={`${API_BASE}${result.annotated_video_url}`} controls />
+              </div>
+            )}
             {error && <div className="error-box">{error}</div>}
             <div className="code-panel result-json">
               <div className="code-title">accident_analysis_payload.json preview</div>
@@ -675,7 +870,17 @@ function ReportDashboard({ result }: { result: AnalysisResponse | null }) {
   );
 }
 
-function ModelRecommendation() {
+function ModelRecommendation({
+  llmStatus,
+  ollamaStatus,
+  onRefreshColab,
+  onRefreshOllama,
+}: {
+  llmStatus: LlmStatus;
+  ollamaStatus: OllamaStatus;
+  onRefreshColab: () => void;
+  onRefreshOllama: () => void;
+}) {
   const models = [
     {
       name: 'Qwen3-VL-32B',
@@ -683,6 +888,8 @@ function ModelRecommendation() {
       role: '긴 영상 이해와 원인-결과 설명에 가장 잘 맞는 주 모델 후보입니다.',
       notebook: 'server/Qwen3_VL_32B_colab_server.ipynb',
       useCase: '최종 보고서 초안, 사고 원인 분석, 고정밀 평가 기준',
+      colabModel: 'Qwen/Qwen3-VL-32B-Instruct',
+      ollamaModel: '',
     },
     {
       name: 'InternVL3',
@@ -690,6 +897,8 @@ function ModelRecommendation() {
       role: 'perception과 reasoning 성능 비교군으로 적합합니다.',
       notebook: 'server/InternVL3_colab_server.ipynb',
       useCase: 'Qwen3-VL과 perception/reasoning 비교',
+      colabModel: 'OpenGVLab/InternVL3-38B',
+      ollamaModel: '',
     },
     {
       name: 'LLaVA-OneVision-2',
@@ -697,6 +906,8 @@ function ModelRecommendation() {
       role: '속도와 성능의 균형을 비교하기 좋은 경량 video baseline입니다.',
       notebook: 'server/LLaVA_OneVision_2_8B_colab_server.ipynb',
       useCase: '저비용 baseline, latency 비교',
+      colabModel: 'lmms-lab/LLaVA-OneVision-2-8B-ov',
+      ollamaModel: '',
     },
     {
       name: 'MiniCPM-V 4.5',
@@ -704,8 +915,41 @@ function ModelRecommendation() {
       role: '긴 영상 token 압축과 빠른 실험용 fallback 후보입니다.',
       notebook: 'server/MiniCPM_V_4_5_colab_server.ipynb',
       useCase: '빠른 반복 실험, fallback 비교',
+      colabModel: 'openbmb/MiniCPM-V-4_5',
+      ollamaModel: '',
+    },
+    {
+      name: 'MiniCPM-V 4.6 local',
+      tag: '3050 4GB 로컬 추천',
+      role: '로컬 Ollama에서 contact sheet 이미지 기반 빠른 sanity check용으로 가장 현실적인 후보입니다.',
+      notebook: 'ollama pull minicpm-v4.6:q4_K_M',
+      useCase: '저사양 fallback, 로컬 빠른 검증',
+      colabModel: '',
+      ollamaModel: 'minicpm-v4.6:q4_K_M',
+    },
+    {
+      name: 'Qwen3.5 2B local',
+      tag: '로컬 reasoning 비교',
+      role: '3050 4GB에서 시도 가능한 소형 vision/reasoning 비교군입니다.',
+      notebook: 'ollama pull qwen3.5:2b-q4_K_M',
+      useCase: '로컬 원인 추론 비교',
+      colabModel: '',
+      ollamaModel: 'qwen3.5:2b-q4_K_M',
+    },
+    {
+      name: 'Gemma3 4B local',
+      tag: '로컬 보조 비교군',
+      role: '4GB VRAM에서는 빡빡하지만 QAT 버전으로 보조 실험 가치가 있습니다.',
+      notebook: 'ollama pull gemma3:4b-it-qat',
+      useCase: '로컬 multimodal 비교',
+      colabModel: '',
+      ollamaModel: 'gemma3:4b-it-qat',
     },
   ];
+  const installedOllamaNames = new Set(
+    ollamaStatus.models.flatMap((item) => [item.name, item.model]).filter(Boolean).map((name) => String(name).toLowerCase()),
+  );
+  const connectedColabModel = llmStatus.model.toLowerCase();
 
   return (
     <section id="models" className="shell">
@@ -714,22 +958,47 @@ function ModelRecommendation() {
           <h2>Qwen3-VL 외 비교 모델 후보</h2>
           <p>최종 성능은 같은 사고 영상 데이터셋에서 모델과 프롬프트별로 수치화해 비교합니다.</p>
         </div>
-        <p className="muted">VL 모델은 사고 원인 reasoning 담당, YOLO는 학습 없이 pretrained evidence 담당으로 역할을 나눕니다.</p>
+        <div className="model-check-actions">
+          <span className={`live-badge ${llmStatus.live ? 'on' : 'off'}`}>{llmStatus.live ? 'Colab 연결됨' : 'Colab 미연결'}</span>
+          <span className={`live-badge ${ollamaStatus.live ? 'on' : 'off'}`}>{ollamaStatus.live ? 'Ollama 연결됨' : 'Ollama 미연결'}</span>
+          <button className="mini-button" type="button" onClick={onRefreshColab}>Colab 체크</button>
+          <button className="mini-button" type="button" onClick={onRefreshOllama}>Ollama 체크</button>
+        </div>
       </div>
-      <div className="grid-4">
-        {models.map((model) => (
+      <div className="model-status-grid">
+        {models.map((model) => {
+          const ollamaInstalled = model.ollamaModel
+            ? installedOllamaNames.has(model.ollamaModel.toLowerCase())
+            : null;
+          const colabConnected = model.colabModel
+            ? llmStatus.live && connectedColabModel.includes(model.colabModel.toLowerCase())
+            : null;
+          return (
           <article className="feature model-card" key={model.name}>
             <span className="tag">{model.tag}</span>
             <h3>{model.name}</h3>
             <p className="muted">{model.role}</p>
+            <div className="model-checks">
+              <div className={`model-check ${colabConnected ? 'ok' : 'off'} ${colabConnected === null ? 'muted-check' : ''}`}>
+                <span>Colab</span>
+                <strong>{colabConnected === null ? '해당 없음' : colabConnected ? '연결됨' : '미연결'}</strong>
+              </div>
+              <div className={`model-check ${ollamaInstalled ? 'ok' : 'off'} ${ollamaInstalled === null ? 'muted-check' : ''}`}>
+                <span>Ollama</span>
+                <strong>{ollamaInstalled === null ? '해당 없음' : ollamaInstalled ? '설치됨' : '미설치'}</strong>
+              </div>
+            </div>
             <dl className="model-meta">
-              <dt>Notebook</dt>
+              <dt>{model.ollamaModel ? 'Install' : 'Notebook'}</dt>
               <dd>{model.notebook}</dd>
               <dt>Use case</dt>
               <dd>{model.useCase}</dd>
+              {model.colabModel && <><dt>Colab model</dt><dd>{model.colabModel}</dd></>}
+              {model.ollamaModel && <><dt>Ollama model</dt><dd>{model.ollamaModel}</dd></>}
             </dl>
           </article>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
