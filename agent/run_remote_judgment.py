@@ -34,12 +34,12 @@ from typing import Any
 
 try:
     from .env import load_agent_env
-    from .pt_detector import DEFAULT_PT_OUTPUT, prepare_pt_input
+    from .pt_detector import DEFAULT_PT_OUTPUT, build_filtered_evidence_sheet, prepare_pt_input
     from .save_judgment import build_agent_output, insert_video_part_tables, validate_colab_judgment
     from .schemas import VisualObservation
 except ImportError:  # direct script execution
     from env import load_agent_env
-    from pt_detector import DEFAULT_PT_OUTPUT, prepare_pt_input
+    from pt_detector import DEFAULT_PT_OUTPUT, build_filtered_evidence_sheet, prepare_pt_input
     from save_judgment import build_agent_output, insert_video_part_tables, validate_colab_judgment
     from schemas import VisualObservation
 
@@ -323,6 +323,9 @@ def main() -> int:
     parser.add_argument("--pt-model", default="", help="Optional YOLO .pt model path")
     parser.add_argument("--pt-output", default=str(DEFAULT_PT_OUTPUT), help="PT detection result JSON path")
     parser.add_argument("--pt-annotated-output", default="", help="Optional annotated YOLO mp4 output path")
+    parser.add_argument("--pt-annotated-sheet-output", default="", help="Optional annotated YOLO contact sheet image path")
+    parser.add_argument("--pt-selected-labels", default="", help="Comma-separated YOLO labels to keep as VL evidence")
+    parser.add_argument("--pt-evidence-sheet-output", default="", help="Optional filtered YOLO evidence sheet image path")
     parser.add_argument("--run-pt", action="store_true", help="Run YOLO inference when --pt-model is provided")
     parser.add_argument("--insert-db", action="store_true")
     parser.add_argument("--api-base", default=os.environ.get("LLM_API_BASE", ""))
@@ -359,7 +362,16 @@ def main() -> int:
         output_path=args.pt_output,
         run_inference=args.run_pt,
         annotated_output_path=args.pt_annotated_output or None,
+        annotated_sheet_output_path=args.pt_annotated_sheet_output or None,
     )
+    selected_pt_labels = [item.strip() for item in args.pt_selected_labels.split(",") if item.strip()]
+    if args.run_pt and selected_pt_labels:
+        pt_result = build_filtered_evidence_sheet(
+            video_path=video_path,
+            pt_result_path=args.pt_output,
+            output_path=args.pt_evidence_sheet_output or DEFAULT_OUTPUT_DIR / "yolo_filtered_evidence_sheet.jpg",
+            selected_labels=selected_pt_labels,
+        )
     print(f"pt status: {pt_result.status} ({pt_result.message})")
     print(f"pt result saved: {args.pt_output}")
     if pt_result.status in {"missing", "invalid", "unavailable"}:
@@ -418,7 +430,11 @@ def main() -> int:
     print(f"contact sheet saved: {sheet_path}")
 
     print("[judgment] running full VL chat judgment for accident type, injured count, and cause...")
-    raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context, args.request_timeout)
+    try:
+        raw_judgment = call_qwen_chat(api_base, sheet_path, args.max_tokens, asdict(pt_result), moment_detection, args.scene_context, args.request_timeout)
+    except RuntimeError as exc:
+        print(f"[judgment] VL chat failed, writing fallback payload: {exc}")
+        raw_judgment = _fallback_judgment_from_connection_error(exc, args.scene_context, asdict(pt_result))
     raw_judgment = _sanitize_accident_judgment(raw_judgment)
     raw_judgment = _force_korean_judgment(raw_judgment)
     if moment_detection:
@@ -1250,6 +1266,36 @@ def _sanitize_accident_judgment(raw: dict[str, Any]) -> dict[str, Any]:
     for key in ("legacy_zone_analysis", "risk_cause_analysis"):
         cleaned.pop(key, None)
     return cleaned
+
+
+def _fallback_judgment_from_connection_error(
+    exc: Exception,
+    scene_context: str,
+    pt_status: dict[str, Any] | None,
+) -> dict[str, Any]:
+    pt_labels = ", ".join(str(item) for item in (pt_status or {}).get("labels") or []) or "YOLO evidence 없음"
+    details = (
+        "[모델 연결 실패]\n"
+        "VL 서버 연결이 원격 호스트에 의해 끊겨 최종 사고 판단을 완료하지 못했습니다. "
+        "이 payload는 프론트엔드와 보고서 파이프라인을 유지하기 위한 fallback 결과입니다.\n"
+        f"현장 설명: {scene_context or '입력 없음'}\n"
+        f"YOLO 보조 정보: {pt_labels}\n"
+        f"오류: {exc}"
+    )
+    return {
+        "primary_type": "기타",
+        "secondary_type": "없음",
+        "confidence": 0.0,
+        "injured_count": 0,
+        "cause": "VL 서버 연결 실패로 사고 원인 판단을 완료하지 못했습니다.",
+        "cause_confidence": 0.0,
+        "timeline": [],
+        "workers": [],
+        "visible_clues": [],
+        "evidence": ["VL 서버 연결 실패", "분석 재시도 필요"],
+        "details": details,
+        "connection_error": str(exc),
+    }
 
 
 def _force_korean_judgment(raw: dict[str, Any]) -> dict[str, Any]:

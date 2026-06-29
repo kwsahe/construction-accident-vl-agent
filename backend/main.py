@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict
@@ -16,7 +17,15 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from agent.pt_detector import DEFAULT_PT_OUTPUT, prepare_pt_input
+from backend.db import (
+    evaluation_summary_from_db,
+    insert_analysis_run,
+    list_eval_cases,
+    score_latest_run_for_case,
+    score_run_if_case_exists,
+    upsert_eval_case,
+)
+from agent.pt_detector import DEFAULT_PT_OUTPUT, build_filtered_evidence_sheet, prepare_pt_input
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 VIDEO_DIR = ROOT_DIR / "video"
@@ -117,7 +126,7 @@ def get_video(filename: str) -> FileResponse:
     path = (VIDEO_DIR / filename).resolve()
     if not _is_inside(path, VIDEO_DIR) or not path.exists():
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
-    return FileResponse(path)
+    return FileResponse(path, media_type="video/mp4" if path.suffix.lower() == ".mp4" else None)
 
 
 @app.get("/api/output/{filename}")
@@ -125,7 +134,7 @@ def get_output_file(filename: str) -> FileResponse:
     path = (AGENT_OUTPUT_DIR / filename).resolve()
     if not _is_inside(path, AGENT_OUTPUT_DIR) or not path.exists():
         raise HTTPException(status_code=404, detail="출력 파일을 찾을 수 없습니다.")
-    return FileResponse(path)
+    return FileResponse(path, media_type="video/mp4" if path.suffix.lower() == ".mp4" else None)
 
 
 @app.post("/api/yolo/analyze")
@@ -144,18 +153,46 @@ def analyze_yolo_only(
         raise HTTPException(status_code=400, detail="YOLO 모델 파일은 agent/models 폴더 안에 있어야 합니다.")
 
     annotated_path = AGENT_OUTPUT_DIR / f"yolo_annotated_{video_path.stem}.mp4"
+    annotated_sheet_path = AGENT_OUTPUT_DIR / f"yolo_annotated_sheet_{video_path.stem}.jpg"
     result = prepare_pt_input(
         model_path=str(model_path),
         video_path=video_path,
         output_path=DEFAULT_PT_OUTPUT,
         run_inference=True,
         annotated_output_path=annotated_path,
+        annotated_sheet_output_path=annotated_sheet_path,
     )
     annotated_url = f"/api/output/{annotated_path.name}" if annotated_path.exists() else ""
+    annotated_sheet_url = f"/api/output/{annotated_sheet_path.name}" if annotated_sheet_path.exists() else ""
     return {
         "video": _video_meta(video_path),
         "result": asdict(result),
         "annotated_video_url": annotated_url,
+        "annotated_sheet_url": annotated_sheet_url,
+        "result_url": f"/api/output/{DEFAULT_PT_OUTPUT.name}",
+    }
+
+
+@app.post("/api/yolo/evidence")
+def build_yolo_evidence(
+    filename: str = Form(...),
+    selected_labels: str = Form(""),
+) -> dict[str, Any]:
+    video_path = (VIDEO_DIR / filename).resolve()
+    if not _is_inside(video_path, VIDEO_DIR) or not video_path.exists():
+        raise HTTPException(status_code=404, detail="YOLO evidence를 생성할 mp4 파일을 찾을 수 없습니다.")
+    labels = [item.strip() for item in selected_labels.split(",") if item.strip()]
+    evidence_path = AGENT_OUTPUT_DIR / f"yolo_evidence_sheet_{video_path.stem}.jpg"
+    result = build_filtered_evidence_sheet(
+        video_path=video_path,
+        pt_result_path=DEFAULT_PT_OUTPUT,
+        output_path=evidence_path,
+        selected_labels=labels,
+    )
+    return {
+        "video": _video_meta(video_path),
+        "result": asdict(result),
+        "annotated_sheet_url": f"/api/output/{evidence_path.name}" if evidence_path.exists() else "",
         "result_url": f"/api/output/{DEFAULT_PT_OUTPUT.name}",
     }
 
@@ -163,10 +200,25 @@ def analyze_yolo_only(
 @app.get("/api/evaluation/summary")
 def evaluation_summary() -> dict[str, Any]:
     """Return model/prompt evaluation results for the frontend dashboard."""
+    db_summary = evaluation_summary_from_db()
+    if db_summary:
+        return db_summary
     summary_path = EVAL_OUTPUT_DIR / "eval_summary.json"
     if summary_path.exists():
         return _read_json(summary_path)
     return _default_eval_summary()
+
+
+@app.get("/api/evaluation/cases")
+def evaluation_cases() -> dict[str, Any]:
+    return {"cases": list_eval_cases()}
+
+
+@app.post("/api/evaluation/cases")
+def save_evaluation_case(case: dict[str, Any]) -> dict[str, Any]:
+    saved = upsert_eval_case(case)
+    score = score_latest_run_for_case(saved["video_id"])
+    return {"case": saved, "score": score, "summary": evaluation_summary_from_db()}
 
 
 @app.get("/api/llm/status")
@@ -224,8 +276,10 @@ def analyze_video(
     ollama_model: str = Form("minicpm-v4.6:q4_K_M"),
     run_yolo: bool = Form(False),
     yolo_model: str = Form("yolo26n.pt"),
+    selected_yolo_labels: str = Form(""),
     fast_mode: bool = Form(True),
 ) -> dict[str, Any]:
+    started_at = time.perf_counter()
     video_path = (VIDEO_DIR / filename).resolve()
     if not _is_inside(video_path, VIDEO_DIR) or not video_path.exists():
         raise HTTPException(status_code=404, detail="분석할 mp4 파일을 찾을 수 없습니다.")
@@ -260,7 +314,7 @@ def analyze_video(
         "--request-timeout",
         "360" if fast_mode else "900",
         "--max-long-side",
-        "320" if fast_mode else "448",
+        "256" if fast_mode and inference_provider == "colab" else "320" if fast_mode else "448",
         "--max-tokens",
         "600" if inference_provider == "ollama" and fast_mode else "320" if fast_mode else "700",
         "--target-seconds",
@@ -283,6 +337,8 @@ def analyze_video(
             "4",
         ])
     annotated_path = AGENT_OUTPUT_DIR / f"yolo_annotated_{video_path.stem}.mp4"
+    annotated_sheet_path = AGENT_OUTPUT_DIR / f"yolo_annotated_sheet_{video_path.stem}.jpg"
+    evidence_sheet_path = AGENT_OUTPUT_DIR / f"yolo_evidence_sheet_{video_path.stem}.jpg"
     if run_yolo:
         YOLO_MODEL_DIR.mkdir(parents=True, exist_ok=True)
         command.extend([
@@ -291,7 +347,16 @@ def analyze_video(
             "--run-pt",
             "--pt-annotated-output",
             str(annotated_path),
+            "--pt-annotated-sheet-output",
+            str(annotated_sheet_path),
         ])
+        if selected_yolo_labels.strip():
+            command.extend([
+                "--pt-selected-labels",
+                selected_yolo_labels,
+                "--pt-evidence-sheet-output",
+                str(evidence_sheet_path),
+            ])
 
     try:
         completed = subprocess.run(
@@ -319,13 +384,33 @@ def analyze_video(
     payload = _read_json(output_path)
     raw = _read_json(raw_output_path)
     pt_result = _read_json(DEFAULT_PT_OUTPUT)
+    analysis_summary = _summary_from_payload(payload, raw)
+    model_name = env.get("LLM_MODEL", MODEL_NAME_BY_KEY.get(model_key, model_key))
+    latency_seconds = time.perf_counter() - started_at
+    run_id = insert_analysis_run(
+        video_id=Path(filename).stem,
+        filename=filename,
+        provider=inference_provider,
+        model_key=model_key if inference_provider != "ollama" else ollama_model,
+        model_name=model_name,
+        fast_mode=fast_mode,
+        run_yolo=run_yolo,
+        summary=analysis_summary,
+        payload=payload,
+        raw=raw,
+        latency_seconds=latency_seconds,
+    )
+    eval_score = score_run_if_case_exists(run_id)
     return {
         "video": _video_meta(video_path),
-        "analysis": _summary_from_payload(payload, raw),
+        "analysis": analysis_summary,
         "payload": payload,
         "raw_judgment": raw,
         "pt_result": pt_result,
         "annotated_video_url": f"/api/output/{annotated_path.name}" if run_yolo and annotated_path.exists() else "",
+        "annotated_sheet_url": f"/api/output/{evidence_sheet_path.name}" if run_yolo and evidence_sheet_path.exists() else f"/api/output/{annotated_sheet_path.name}" if run_yolo and annotated_sheet_path.exists() else "",
+        "run_id": run_id,
+        "eval_score": eval_score,
         "logs": completed.stdout,
     }
 

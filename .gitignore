@@ -6,6 +6,7 @@ agent/.env
 agent/output/
 agent/video/
 agent/models/
+data/
 video/*
 !video/.gitkeep
 __pycache__/

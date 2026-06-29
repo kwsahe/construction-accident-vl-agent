@@ -779,6 +779,11 @@ code {
   box-shadow: none;
 }
 
+.result-json pre {
+  max-height: 320px;
+  overflow: auto;
+}
+
 .table {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -930,7 +935,14 @@ code {
   font-weight: 800;
 }
 
-.yolo-result,
+.yolo-result {
+  overflow: hidden;
+  margin: 0 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
 .detecting-preview {
   overflow: hidden;
   margin: 0 16px 16px;
@@ -949,12 +961,54 @@ code {
   margin: 12px;
 }
 
+.annotated-sheet {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111;
+}
+
 .yolo-meta {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 7px 12px;
   padding: 0 12px 12px;
   font-size: 13px;
+}
+
+.label-filter {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.label-filter > strong {
+  font-size: 13px;
+}
+
+.label-filter > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.label-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8f3e9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.label-filter input {
+  accent-color: var(--ok);
 }
 
 .yolo-meta span {
@@ -1119,9 +1173,24 @@ code {
 
 .score-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
+}
+
+.eval-score-card {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff8df;
+}
+
+.eval-score-card p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .metric-card,
@@ -1156,6 +1225,68 @@ code {
   grid-template-columns: 1.35fr .8fr .8fr;
   gap: 18px;
   align-items: stretch;
+}
+
+.eval-labeler {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.eval-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.eval-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.eval-form label.full {
+  grid-column: 1 / -1;
+}
+
+.eval-form input,
+.eval-form select,
+.eval-form textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+
+.eval-form textarea {
+  padding: 10px;
+  resize: vertical;
+}
+
+.eval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.eval-actions span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.eval-json pre {
+  max-height: 330px;
+  overflow: auto;
 }
 
 .dashboard-card {
@@ -1239,6 +1370,41 @@ code {
   font-size: 15px;
 }
 
+.report-paper textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff8df;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.report-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.report-fields div {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff8df;
+}
+
+.report-fields span,
+.report-fields strong {
+  display: block;
+}
+
+.report-fields span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .report-paper ol {
   margin-bottom: 0;
   padding-left: 20px;
@@ -1260,6 +1426,7 @@ code {
 @media (max-width: 920px) {
   .grid-4,
   .model-status-grid,
+  .eval-labeler,
   .score-strip,
   .dashboard-grid,
   .report-layout {
@@ -1270,6 +1437,7 @@ code {
 @media (max-width: 640px) {
   .grid-4,
   .model-status-grid,
+  .eval-labeler,
   .score-strip,
   .dashboard-grid,
   .report-layout {
@@ -1277,6 +1445,10 @@ code {
   }
 
   .bar-row {
+    grid-template-columns: 1fr;
+  }
+
+  .eval-form {
     grid-template-columns: 1fr;
   }
 }

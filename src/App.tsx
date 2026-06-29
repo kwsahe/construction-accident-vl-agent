@@ -29,6 +29,9 @@ type AnalysisResponse = {
   raw_judgment: Record<string, unknown>;
   pt_result?: YoloResult;
   annotated_video_url?: string;
+  annotated_sheet_url?: string;
+  run_id?: number;
+  eval_score?: Record<string, number | string> | null;
   logs: string;
 };
 
@@ -38,6 +41,7 @@ type ModelScore = {
   total: number;
   typeAccuracy: number;
   causeRecall: number;
+  semanticScore?: number;
   jsonValid: number;
   latency: number;
 };
@@ -48,6 +52,16 @@ type EvaluationSummary = {
   best_model?: string;
   scores: ModelScore[];
   charts?: string[];
+};
+
+type EvaluationCase = {
+  video_id: string;
+  accident_detected: boolean;
+  accident_type: string;
+  injured_count: number;
+  cause_keywords: string[];
+  accident_time_range: [number, number];
+  required_evidence: string[];
 };
 
 type LlmStatus = {
@@ -72,6 +86,7 @@ type YoloResponse = {
   video: VideoMeta;
   result: YoloResult;
   annotated_video_url: string;
+  annotated_sheet_url?: string;
   result_url: string;
 };
 
@@ -93,10 +108,10 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000';
 const stages = ['video 폴더 저장', '프레임 추출', 'VL 사고 판단', '분석 payload'];
 
 const fallbackModelScores: ModelScore[] = [
-  { name: 'Qwen3-VL-32B', prompt: 'Cause Prompt + YOLO Evidence', total: 0.86, typeAccuracy: 0.89, causeRecall: 0.82, jsonValid: 0.97, latency: 43.2 },
-  { name: 'InternVL3-38B', prompt: 'Cause Prompt', total: 0.81, typeAccuracy: 0.86, causeRecall: 0.76, jsonValid: 0.94, latency: 51.8 },
-  { name: 'LLaVA-OneVision-2-8B', prompt: 'Cause Prompt', total: 0.74, typeAccuracy: 0.79, causeRecall: 0.68, jsonValid: 0.91, latency: 24.5 },
-  { name: 'MiniCPM-V 4.5', prompt: 'Fast Video Prompt', total: 0.71, typeAccuracy: 0.76, causeRecall: 0.64, jsonValid: 0.90, latency: 18.7 },
+  { name: 'Qwen3-VL-32B', prompt: 'Cause Prompt + YOLO Evidence', total: 0.86, typeAccuracy: 0.89, causeRecall: 0.82, semanticScore: 0.84, jsonValid: 0.97, latency: 43.2 },
+  { name: 'InternVL3-38B', prompt: 'Cause Prompt', total: 0.81, typeAccuracy: 0.86, causeRecall: 0.76, semanticScore: 0.79, jsonValid: 0.94, latency: 51.8 },
+  { name: 'LLaVA-OneVision-2-8B', prompt: 'Cause Prompt', total: 0.74, typeAccuracy: 0.79, causeRecall: 0.68, semanticScore: 0.70, jsonValid: 0.91, latency: 24.5 },
+  { name: 'MiniCPM-V 4.5', prompt: 'Fast Video Prompt', total: 0.71, typeAccuracy: 0.76, causeRecall: 0.64, semanticScore: 0.67, jsonValid: 0.90, latency: 18.7 },
 ];
 
 function formatBytes(bytes: number) {
@@ -110,6 +125,34 @@ function formatElapsed(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function splitCsv(value: string) {
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function buildReportDraft(result: AnalysisResponse | null) {
+  const type = result?.analysis.accident_type_ko || result?.analysis.accident_type || '사고 유형 분석 대기';
+  const injured = typeof result?.analysis.injured_count === 'number' ? `${result.analysis.injured_count}명` : '확인 필요';
+  const confidence = typeof result?.analysis.confidence === 'number' ? result.analysis.confidence.toFixed(2) : '-';
+  const cause = result?.analysis.cause || '분석 완료 후 사고 원인 후보가 표시됩니다.';
+  const detail = result?.analysis.details || '영상 프레임 변화, 작업자 위치 변화, 구조물 상태 변화를 근거로 사고 개요를 정리합니다.';
+  const clip =
+    typeof result?.analysis.clip_start_offset === 'number' && typeof result?.analysis.clip_end_offset === 'number'
+      ? `${result.analysis.clip_start_offset}s ~ ${result.analysis.clip_end_offset}s`
+      : '분석 구간 확인 필요';
+
+  return {
+    title: `건설현장 ${type} 사고 분석 보고서 초안`,
+    overview: `분석 구간 ${clip}에서 ${type} 사고가 의심됩니다. 부상자 수는 ${injured}, 신뢰도는 ${confidence}입니다.`,
+    simple: cause,
+    details: detail,
+    actions: [
+      '사고 구간의 작업자 위치 변화와 구조물 상태 변화를 원본 영상으로 재확인합니다.',
+      '고소작업 또는 이동식 구조물 사용 시 고정 상태와 임의 이동 여부를 점검합니다.',
+      '동일 작업 전 접근 통제, 작업자 간 신호 체계, 추락 방지 조치를 재점검합니다.',
+    ],
+  };
 }
 
 function App() {
@@ -137,6 +180,7 @@ function App() {
   const [yoloStatus, setYoloStatus] = useState<AnalyzeState>('idle');
   const [yoloResult, setYoloResult] = useState<YoloResponse | null>(null);
   const [yoloError, setYoloError] = useState('');
+  const [selectedYoloLabels, setSelectedYoloLabels] = useState<string[]>(['person']);
   const [llmStatus, setLlmStatus] = useState<LlmStatus>({ live: false, model: '', api_base: '', message: 'not checked' });
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ live: false, base_url: 'http://127.0.0.1:11434', models: [], message: 'not checked' });
   const [sceneContext, setSceneContext] = useState(
@@ -236,6 +280,7 @@ function App() {
     setResult(null);
     setYoloResult(null);
     setYoloError('');
+    setSelectedYoloLabels(['person']);
     setYoloStatus(selected ? 'ready' : 'idle');
     setError('');
     setActiveStage(-1);
@@ -302,6 +347,7 @@ function App() {
       formData.append('ollama_model', selectedOllamaModel);
       formData.append('run_yolo', String(runYolo));
       formData.append('yolo_model', yoloModel);
+      formData.append('selected_yolo_labels', selectedYoloLabels.join(','));
       formData.append('fast_mode', String(fastMode));
 
       const response = await fetch(`${API_BASE}/api/analyze`, { method: 'POST', body: formData });
@@ -311,6 +357,9 @@ function App() {
       setResult(data);
       setStatus('done');
       setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+      if (data.eval_score) {
+        await refreshEvaluationSummary();
+      }
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : String(err));
@@ -333,6 +382,7 @@ function App() {
       if (!response.ok) throw new Error(await readError(response));
       const data = await response.json() as YoloResponse;
       setYoloResult(data);
+      setSelectedYoloLabels(data.result.labels.includes('person') ? ['person'] : data.result.labels.slice(0, 1));
       setYoloStatus('done');
       setStatus('ready');
       setActiveStage(1);
@@ -343,6 +393,25 @@ function App() {
     }
   };
 
+  const buildYoloEvidence = async () => {
+    if (!uploadedVideo || !selectedYoloLabels.length) return;
+    try {
+      setYoloStatus('running');
+      setYoloError('');
+      const formData = new FormData();
+      formData.append('filename', uploadedVideo.filename);
+      formData.append('selected_labels', selectedYoloLabels.join(','));
+      const response = await fetch(`${API_BASE}/api/yolo/evidence`, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = await response.json() as YoloResponse;
+      setYoloResult(data);
+      setYoloStatus('done');
+    } catch (err) {
+      setYoloStatus('error');
+      setYoloError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const selectExistingVideo = (video: VideoMeta) => {
     setFile(null);
     setPreviewUrl(`${API_BASE}${video.url}`);
@@ -350,6 +419,7 @@ function App() {
     setResult(null);
     setYoloResult(null);
     setYoloError('');
+    setSelectedYoloLabels(['person']);
     setYoloStatus('ready');
     setError('');
     setStatus('ready');
@@ -388,6 +458,7 @@ function App() {
           onFileChange={handleFileChange}
           onRunAnalysis={runAnalysis}
           onRunYoloOnly={runYoloOnly}
+          onBuildYoloEvidence={buildYoloEvidence}
           onSceneContextChange={setSceneContext}
           onSelectVideo={selectExistingVideo}
           onSelectedModelChange={setSelectedModel}
@@ -413,6 +484,8 @@ function App() {
           fastMode={fastMode}
           yoloModel={yoloModel}
           yoloResult={yoloResult}
+          selectedYoloLabels={selectedYoloLabels}
+          onSelectedYoloLabelsChange={setSelectedYoloLabels}
           yoloStatus={yoloStatus}
           yoloError={yoloError}
           youtubeUrl={youtubeUrl}
@@ -420,7 +493,7 @@ function App() {
           onRefreshOllamaStatus={refreshOllamaStatus}
           onRefreshLlmStatus={refreshLlmStatus}
         />
-        <EvaluationDashboard summary={evaluationSummary} />
+        <EvaluationDashboard summary={evaluationSummary} result={result} onSummaryChange={setEvaluationSummary} />
         <ReportDashboard result={result} />
         <ModelRecommendation
           llmStatus={llmStatus}
@@ -516,6 +589,7 @@ type WorkspaceProps = {
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onRunAnalysis: (event?: FormEvent) => void;
   onRunYoloOnly: () => void;
+  onBuildYoloEvidence: () => void;
   onSceneContextChange: (value: string) => void;
   onSelectVideo: (video: VideoMeta) => void;
   onSelectedModelChange: (value: string) => void;
@@ -541,6 +615,8 @@ type WorkspaceProps = {
   fastMode: boolean;
   yoloModel: string;
   yoloResult: YoloResponse | null;
+  selectedYoloLabels: string[];
+  onSelectedYoloLabelsChange: (value: string[]) => void;
   yoloStatus: AnalyzeState;
   yoloError: string;
   youtubeUrl: string;
@@ -552,10 +628,10 @@ type WorkspaceProps = {
 function AnalyzeWorkspace(props: WorkspaceProps) {
   const {
     activeStage, apiBase, cameraId, elapsedSeconds, error, file, jsonPreview, onApiBaseChange, onCameraIdChange,
-    onFileChange, onRunAnalysis, onRunYoloOnly, onSceneContextChange, onSelectVideo, previewUrl,
+    onFileChange, onRunAnalysis, onRunYoloOnly, onBuildYoloEvidence, onSceneContextChange, onSelectVideo, previewUrl,
     result, sceneContext, status, uploadedVideo, videos, selectedModel, onSelectedModelChange,
     inferenceProvider, onInferenceProviderChange, selectedOllamaModel, onSelectedOllamaModelChange, ollamaBaseUrl, onOllamaBaseUrlChange,
-    runYolo, onRunYoloChange, fastMode, onFastModeChange, yoloModel, onYoloModelChange, yoloResult, yoloStatus, yoloError, youtubeUrl, onYoutubeUrlChange,
+    runYolo, onRunYoloChange, fastMode, onFastModeChange, yoloModel, onYoloModelChange, yoloResult, selectedYoloLabels, onSelectedYoloLabelsChange, yoloStatus, yoloError, youtubeUrl, onYoutubeUrlChange,
     llmStatus, ollamaStatus, onRefreshLlmStatus, onRefreshOllamaStatus,
   } = props;
   const ollamaOptions = ollamaStatus.models.length
@@ -570,6 +646,13 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
     done: '사고 분석 완료',
     error: '분석 오류',
   }[status];
+  const reportDraft = buildReportDraft(result);
+  const toggleYoloLabel = (label: string) => {
+    const next = selectedYoloLabels.includes(label)
+      ? selectedYoloLabels.filter((item) => item !== label)
+      : [...selectedYoloLabels, label];
+    onSelectedYoloLabelsChange(next);
+  };
 
   return (
     <section id="workspace" className="workspace-band">
@@ -669,15 +752,34 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
                   </div>
                   <span className={`pill ${yoloStatus}`}>{yoloStatus.toUpperCase()}</span>
                 </div>
-                {yoloResult?.annotated_video_url && (
+                {yoloResult?.annotated_sheet_url && (
+                  <img className="annotated-sheet" src={`${API_BASE}${yoloResult.annotated_sheet_url}`} alt="YOLO annotated contact sheet" />
+                )}
+                {!yoloResult?.annotated_sheet_url && yoloResult?.annotated_video_url && (
                   <video className="video-preview yolo-video" src={`${API_BASE}${yoloResult.annotated_video_url}`} controls />
                 )}
                 {yoloResult && (
+                  <>
+                  <div className="label-filter">
+                    <strong>VL evidence로 사용할 라벨 선택</strong>
+                    <div>
+                      {yoloResult.result.labels.map((label) => (
+                        <label key={label}>
+                          <input type="checkbox" checked={selectedYoloLabels.includes(label)} onChange={() => toggleYoloLabel(label)} />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <button className="mini-button" type="button" onClick={onBuildYoloEvidence} disabled={!selectedYoloLabels.length || yoloStatus === 'running'}>
+                      선택 라벨로 evidence 생성
+                    </button>
+                  </div>
                   <div className="yolo-meta">
                     <span>model</span><strong>{yoloModel}</strong>
                     <span>confidence</span><strong>{typeof yoloResult.result.confidence === 'number' ? yoloResult.result.confidence.toFixed(2) : '-'}</strong>
-                    <span>labels</span><strong>{yoloResult.result.labels.join(', ') || '-'}</strong>
+                    <span>selected</span><strong>{selectedYoloLabels.join(', ') || '-'}</strong>
                   </div>
+                  </>
                 )}
                 {yoloError && <div className="error-box">{yoloError}</div>}
               </div>
@@ -724,16 +826,21 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
               <div className="result-box"><span>신뢰도</span><strong>{typeof result?.analysis.confidence === 'number' ? result.analysis.confidence.toFixed(2) : '-'}</strong></div>
             </div>
             {result?.analysis.cause && <div className="cause-box"><span>판단 원인</span><p>{result.analysis.cause}</p></div>}
-            {result?.annotated_video_url && (
+            {(result?.annotated_sheet_url || result?.annotated_video_url) && (
               <div className="detecting-preview">
                 <div className="panel-head compact">
                   <div>
-                    <strong>YOLO detecting mode</strong>
+                    <strong>YOLO annotated contact sheet</strong>
                     <span>{result.pt_result?.detections.length ?? 0} detections · {result.pt_result?.labels.join(', ') || 'label 없음'}</span>
                   </div>
                   <span className="pill done">DETECTED</span>
                 </div>
-                <video className="video-preview yolo-video" src={`${API_BASE}${result.annotated_video_url}`} controls />
+                {result.annotated_sheet_url && (
+                  <img className="annotated-sheet" src={`${API_BASE}${result.annotated_sheet_url}`} alt="YOLO annotated contact sheet" />
+                )}
+                {!result.annotated_sheet_url && result.annotated_video_url && (
+                  <video className="video-preview yolo-video" src={`${API_BASE}${result.annotated_video_url}`} controls />
+                )}
               </div>
             )}
             {error && <div className="error-box">{error}</div>}
@@ -748,7 +855,42 @@ function AnalyzeWorkspace(props: WorkspaceProps) {
   );
 }
 
-function EvaluationDashboard({ summary }: { summary: EvaluationSummary }) {
+function EvaluationDashboard({
+  summary,
+  result,
+  onSummaryChange,
+}: {
+  summary: EvaluationSummary;
+  result: AnalysisResponse | null;
+  onSummaryChange: (summary: EvaluationSummary) => void;
+}) {
+  const [evalCase, setEvalCase] = useState<EvaluationCase>({
+    video_id: 'accident_001',
+    accident_detected: true,
+    accident_type: '추락',
+    injured_count: 1,
+    cause_keywords: ['비계', '이동', '전도', '상부 작업자 추락'],
+    accident_time_range: [14, 18],
+    required_evidence: ['작업자 위치 변화', '구조물 이동', '추락 후 바닥 접촉'],
+  });
+  const [evalSaveMessage, setEvalSaveMessage] = useState('');
+  const [latestEvalScore, setLatestEvalScore] = useState<Record<string, unknown> | null>(result?.eval_score ?? null);
+  useEffect(() => {
+    if (!result?.video.filename) return;
+    setEvalCase((current) => ({
+      ...current,
+      video_id: result.video.filename.replace(/\.[^.]+$/, ''),
+      accident_type: result.analysis.accident_type_ko || current.accident_type,
+      injured_count: result.analysis.injured_count ?? current.injured_count,
+      accident_time_range: [
+        result.analysis.clip_start_offset ?? current.accident_time_range[0],
+        result.analysis.clip_end_offset ?? current.accident_time_range[1],
+      ],
+    }));
+  }, [result]);
+  useEffect(() => {
+    if (result?.eval_score) setLatestEvalScore(result.eval_score);
+  }, [result]);
   const scores = summary.scores.length ? summary.scores : fallbackModelScores;
   const best = scores.find((item) => item.name === summary.best_model) ?? scores[0];
   const maxScore = Math.max(...scores.map((item) => item.total));
@@ -758,6 +900,23 @@ function EvaluationDashboard({ summary }: { summary: EvaluationSummary }) {
     'eval/output/latency_boxplot.png',
     'eval/output/model_score_bar.png',
   ];
+
+  const saveEvalCase = async () => {
+    setEvalSaveMessage('저장 중...');
+    const response = await fetch(`${API_BASE}/api/evaluation/cases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(evalCase),
+    });
+    if (!response.ok) {
+      setEvalSaveMessage(await readError(response));
+      return;
+    }
+    const data = await response.json() as { summary?: EvaluationSummary; score?: Record<string, unknown> | null };
+    if (data.summary?.scores?.length) onSummaryChange(data.summary);
+    setLatestEvalScore(data.score ?? null);
+    setEvalSaveMessage(data.score ? '정답 라벨 저장 및 최신 분석 결과 채점 완료' : '정답 라벨 저장 완료. 같은 video_id 분석 후 자동 채점됩니다.');
+  };
 
   return (
     <section id="dashboard" className="shell">
@@ -769,12 +928,62 @@ function EvaluationDashboard({ summary }: { summary: EvaluationSummary }) {
         <p className="muted">현재 데이터셋: <code>{summary.dataset ?? 'sample_accident_eval'}</code> · 갱신: <code>{summary.updated_at ?? 'sample'}</code></p>
       </div>
 
+      <div className="eval-labeler">
+        <div className="dashboard-card wide">
+          <div className="card-title">정답 라벨 입력</div>
+          <div className="eval-form">
+            <label><span>Video ID</span><input value={evalCase.video_id} onChange={(event) => setEvalCase({ ...evalCase, video_id: event.target.value })} /></label>
+            <label><span>사고 여부</span><select value={String(evalCase.accident_detected)} onChange={(event) => setEvalCase({ ...evalCase, accident_detected: event.target.value === 'true' })}>
+              <option value="true">사고 발생</option>
+              <option value="false">사고 아님</option>
+            </select></label>
+            <label><span>사고 유형</span><select value={evalCase.accident_type} onChange={(event) => setEvalCase({ ...evalCase, accident_type: event.target.value })}>
+              <option>추락</option>
+              <option>낙상</option>
+              <option>화재</option>
+              <option>충돌</option>
+              <option>끼임</option>
+              <option>붕괴</option>
+              <option>기타</option>
+            </select></label>
+            <label><span>부상자 수</span><input type="number" min="0" value={evalCase.injured_count} onChange={(event) => setEvalCase({ ...evalCase, injured_count: Number(event.target.value) })} /></label>
+            <label><span>사고 시작초</span><input type="number" min="0" value={evalCase.accident_time_range[0]} onChange={(event) => setEvalCase({ ...evalCase, accident_time_range: [Number(event.target.value), evalCase.accident_time_range[1]] })} /></label>
+            <label><span>사고 종료초</span><input type="number" min="0" value={evalCase.accident_time_range[1]} onChange={(event) => setEvalCase({ ...evalCase, accident_time_range: [evalCase.accident_time_range[0], Number(event.target.value)] })} /></label>
+            <label className="full"><span>원인 키워드</span><input value={evalCase.cause_keywords.join(', ')} onChange={(event) => setEvalCase({ ...evalCase, cause_keywords: splitCsv(event.target.value) })} /></label>
+            <label className="full"><span>필수 근거</span><textarea rows={3} value={evalCase.required_evidence.join(', ')} onChange={(event) => setEvalCase({ ...evalCase, required_evidence: splitCsv(event.target.value) })} /></label>
+          </div>
+          <div className="eval-actions">
+            <button className="mini-button" type="button" onClick={saveEvalCase}>DB에 정답 라벨 저장</button>
+            <span>{evalSaveMessage || '저장하면 같은 video_id의 최신 분석 결과를 자동 채점합니다.'}</span>
+          </div>
+        </div>
+        <div className="code-panel eval-json">
+          <div className="code-title">eval_cases.json label preview</div>
+          <pre><code>{JSON.stringify(evalCase, null, 2)}</code></pre>
+        </div>
+      </div>
+
       <div className="score-strip">
         <MetricCard label="Best Model" value={best.name} detail={best.prompt} />
         <MetricCard label="Total Score" value={best.total.toFixed(2)} detail="weighted score" />
         <MetricCard label="Cause Recall" value={`${Math.round(best.causeRecall * 100)}%`} detail="원인 키워드 회수율" />
+        <MetricCard label="Semantic" value={`${Math.round((best.semanticScore ?? 0) * 100)}%`} detail="qwen2.5:3b 의미 채점" />
         <MetricCard label="JSON Valid" value={`${Math.round(best.jsonValid * 100)}%`} detail="schema pass rate" />
       </div>
+
+      {latestEvalScore && (
+        <div className="eval-score-card">
+          <div className="card-title">최신 채점 결과</div>
+          <div className="mini-table">
+            <span>Total</span><strong>{Number(latestEvalScore.total_score ?? 0).toFixed(2)}</strong>
+            <span>Type</span><strong>{Number(latestEvalScore.type_score ?? 0).toFixed(2)}</strong>
+            <span>Cause Recall</span><strong>{Number(latestEvalScore.cause_recall ?? 0).toFixed(2)}</strong>
+            <span>Semantic</span><strong>{Number(latestEvalScore.semantic_score ?? 0).toFixed(2)}</strong>
+            <span>Time IoU</span><strong>{Number(latestEvalScore.time_iou ?? 0).toFixed(2)}</strong>
+          </div>
+          <p>{String(latestEvalScore.semantic_reason ?? 'qwen2.5:3b 의미 채점 결과가 여기에 표시됩니다.')}</p>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         <div className="dashboard-card wide">
@@ -794,6 +1003,7 @@ function EvaluationDashboard({ summary }: { summary: EvaluationSummary }) {
           <div className="mini-table">
             <span>Type Accuracy</span><strong>{Math.round(best.typeAccuracy * 100)}%</strong>
             <span>Cause Keyword Recall</span><strong>{Math.round(best.causeRecall * 100)}%</strong>
+            <span>Semantic Score</span><strong>{Math.round((best.semanticScore ?? 0) * 100)}%</strong>
             <span>Average Latency</span><strong>{best.latency.toFixed(1)}s</strong>
           </div>
         </div>
@@ -819,16 +1029,7 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 }
 
 function ReportDashboard({ result }: { result: AnalysisResponse | null }) {
-  const report = {
-    title: '건설현장 추락 사고 분석 보고서 초안',
-    overview: result?.analysis.details || '사고 전후 프레임에서 작업자 위치 변화와 구조물 불안정 가능성을 확인하고, 사고 유형과 원인 후보를 정리합니다.',
-    cause: result?.analysis.cause || '구조물 이동 또는 작업 위치 변화로 인한 추락 가능성',
-    actions: [
-      '고소작업 전 구조물 고정 상태를 점검합니다.',
-      '작업 중 구조물 이동 또는 임의 조작을 제한합니다.',
-      '사고 위험 작업 구간에 접근 통제와 신호 담당자를 배치합니다.',
-    ],
-  };
+  const report = buildReportDraft(result);
 
   return (
     <section id="reports" className="workspace-band">
@@ -845,23 +1046,28 @@ function ReportDashboard({ result }: { result: AnalysisResponse | null }) {
             <p className="eyebrow">Auto Draft</p>
             <h3>{report.title}</h3>
             <h4>1. 사고 개요</h4>
-            <p>{report.overview}</p>
+            <textarea value={report.overview} readOnly rows={3} aria-label="사고 개요" />
             <h4>2. 원인 분석</h4>
-            <p>{report.cause}</p>
-            <h4>3. 재발 방지 조치</h4>
-            <ol>
-              {report.actions.map((action) => <li key={action}>{action}</li>)}
-            </ol>
+            <textarea value={report.simple} readOnly rows={4} aria-label="원인 분석" />
+            <h4>3. 세부 설명</h4>
+            <textarea value={report.details} readOnly rows={6} aria-label="세부 설명" />
+            <h4>4. 재발 방지 조치</h4>
+            <textarea value={report.actions.map((action, index) => `${index + 1}. ${action}`).join('\n')} readOnly rows={5} aria-label="재발 방지 조치" />
           </article>
           <div className="dashboard-card">
-            <div className="card-title">논문형 자동 작성 구조</div>
+            <div className="card-title">보고서 구성 필드</div>
+            <div className="report-fields">
+              <div><span>사고 유형</span><strong>{result?.analysis.accident_type_ko ?? '분석 대기'}</strong></div>
+              <div><span>부상자 수</span><strong>{typeof result?.analysis.injured_count === 'number' ? `${result.analysis.injured_count}명` : '확인 필요'}</strong></div>
+              <div><span>신뢰도</span><strong>{typeof result?.analysis.confidence === 'number' ? result.analysis.confidence.toFixed(2) : '-'}</strong></div>
+              <div><span>분석 구간</span><strong>{typeof result?.analysis.clip_start_offset === 'number' && typeof result?.analysis.clip_end_offset === 'number' ? `${result.analysis.clip_start_offset}s ~ ${result.analysis.clip_end_offset}s` : '확인 필요'}</strong></div>
+            </div>
+            <div className="card-title spacious">다음 확장</div>
             <div className="paper-flow">
-              <span>Abstract</span>
-              <span>Method</span>
-              <span>Dataset</span>
-              <span>Evaluation</span>
-              <span>Result</span>
-              <span>Limitations</span>
+              <span>검토자 수정</span>
+              <span>PDF Export</span>
+              <span>평가 결과 첨부</span>
+              <span>논문형 요약</span>
             </div>
           </div>
         </div>
